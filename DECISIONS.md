@@ -26,4 +26,12 @@
 - Weights centralized in `settings.PERFORMANCE_SCORE_WEIGHTS` and `stats/scoring.py`.
 
 ## Database
-- PostgreSQL is primary. `USE_SQLITE=True` is an optional local smoke-test escape hatch only.
+- SQLite only (WAL mode) — no separate DB server/container. Chosen over Postgres for the
+  production deploy target: a memory-constrained (1GB) single-box VM, ~14 users, roughly one
+  match a week. Eliminates an entire container/process from the stack.
+- WAL mode + `busy_timeout` (`config/settings.py`) let reads proceed while a write is in
+  progress; production runs gunicorn with a single worker process (multiple threads) rather
+  than several, since SQLite allows only one writer at a time and one process avoids
+  cross-process lock contention on the db file.
+- `SQLITE_DB_PATH` env var overrides the db file location — used in `docker-compose.prod.yml`
+  to point it at a mounted volume so it survives container recreation.

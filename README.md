@@ -2,7 +2,7 @@
 
 Private **7-a-side football statistics and awards** platform for a fixed group of 14 classmates who play every Monday.
 
-> Phase 1 (Foundation) is implemented: Django project, PostgreSQL config, models, migrations, seed data.
+> Phase 1 (Foundation) is implemented: Django project, database config, models, migrations, seed data.
 > Frontend React PWA arrives in Phase 3.
 
 ## Architecture
@@ -10,11 +10,11 @@ Private **7-a-side football statistics and awards** platform for a fixed group o
 | Layer | Technology |
 | --- | --- |
 | Backend | Django 6 + Django REST Framework |
-| Database | PostgreSQL 16 |
+| Database | SQLite (WAL mode) — no separate DB server/container |
 | Auth | DRF Token Authentication + role-based access (`ADMIN` / `PLAYER`) |
 | API docs | OpenAPI via drf-spectacular (`/api/docs/`) |
 | Frontend | React + Vite + PWA (Phase 3) |
-| Containers | Docker Compose (Postgres, backend, frontend) |
+| Containers | Docker Compose (backend, frontend) |
 
 ### Apps
 
@@ -38,19 +38,14 @@ Private **7-a-side football statistics and awards** platform for a fixed group o
 ## Requirements
 
 - Python 3.12+ (tested with 3.13)
-- PostgreSQL 16 (or Docker)
 - Node.js 20+ (Phase 3+)
 
-## Quick start (Docker)
+No database server to install — SQLite ships with Python.
+
+## Quick start
 
 ```bash
 cp .env.example .env
-docker compose up --build db
-```
-
-In another terminal (local Django against Docker Postgres):
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -60,42 +55,12 @@ python manage.py seed_data
 python manage.py runserver
 ```
 
-Or start the full stack (frontend placeholder until Phase 3):
+Or via Docker (frontend runs as a live Vite dev server for hot reload):
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
-
-## Local setup without Docker Compose app services
-
-1. Copy env file:
-
-```bash
-cp .env.example .env
-```
-
-2. Start PostgreSQL and create the database/user matching `.env`.
-
-3. Install and migrate:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cd backend
-python manage.py migrate
-python manage.py seed_data
-python manage.py runserver
-```
-
-### SQLite fallback (optional smoke test only)
-
-```bash
-USE_SQLITE=True python manage.py migrate
-USE_SQLITE=True python manage.py seed_data
-```
-
-Production / acceptance testing should use PostgreSQL.
 
 ## Seed credentials
 
@@ -112,7 +77,7 @@ the admin and this one sample player.
 See `.env.example` for the full list. Important keys:
 
 - `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`
-- `POSTGRES_*` database settings
+- `SQLITE_DB_PATH` — overrides where the SQLite file lives (defaults to `backend/db.sqlite3`)
 - `CORS_ALLOWED_ORIGINS`
 - `SEED_ADMIN_*`
 - Performance weights: `GOAL_WEIGHT`, `ASSIST_WEIGHT`, `CLEAN_SHEET_WEIGHT`, `WIN_WEIGHT`
@@ -161,7 +126,7 @@ python manage.py test matches.tests.test_match_flow awards.tests.test_awards
 
 ## Development process
 
-1. **Phase 1 — Foundation** ✅ models, migrations, seed, Docker/Postgres
+1. **Phase 1 — Foundation** ✅ models, migrations, seed, Docker
 2. **Phase 2 — Backend** ✅ REST API, services, validation, tests
 3. **Phase 3 — Frontend** ✅ React PWA (admin + player workflows)
 4. **Phase 4 — Integration** ✅ login → match → teams → result → finalize → stats/awards
@@ -188,21 +153,21 @@ npm run preview
 ## Deployment notes
 
 1. Set strong `SECRET_KEY`, `DEBUG=False`, and production `ALLOWED_HOSTS` / `CORS_ALLOWED_ORIGINS`.
-2. Use managed PostgreSQL and run `python manage.py migrate && python manage.py collectstatic`.
-3. Serve the Django API behind gunicorn/uvicorn + reverse proxy.
+2. Run `python manage.py migrate && python manage.py collectstatic`.
+3. Serve the Django API behind gunicorn (single worker — see below) + reverse proxy.
 4. Build the frontend (`npm run build`) and serve `frontend/dist` via nginx (or a CDN), pointing `VITE_API_BASE_URL` at the API origin at build time.
 5. Configure HTTPS and secure cookies/tokens in production.
+6. Back up the SQLite file (`SQLITE_DB_PATH`, or its Docker volume) regularly — it's the entire database.
 
 ### Production deployment with Docker (`docker-compose.prod.yml`)
 
-Sized for a small single-box deploy (e.g. a 1GB-RAM VM) — no Node process at
-runtime, trimmed Postgres memory settings, and gunicorn capped to 2 workers.
+Sized for a small single-box deploy (e.g. a 1GB-RAM VM) — no Node process and
+no separate database container at runtime.
 
 ```bash
 cp .env.example .env
-# then edit .env: SECRET_KEY, POSTGRES_PASSWORD, ALLOWED_HOSTS (your host/IP),
-# CORS_ALLOWED_ORIGINS, SEED_ADMIN_USERNAME/SEED_ADMIN_PASSWORD —
-# do NOT reuse the dev defaults for any of these.
+# then edit .env: SECRET_KEY, ALLOWED_HOSTS (your host/IP), CORS_ALLOWED_ORIGINS,
+# SEED_ADMIN_USERNAME/SEED_ADMIN_PASSWORD — do NOT reuse the dev defaults.
 
 docker compose -f docker-compose.prod.yml up --build -d
 ```
@@ -214,26 +179,28 @@ Differences from the dev `docker-compose.yml`:
   no Node/Vite dev server running in production. Nginx also serves
   `/static/` and `/media/` directly from shared volumes and reverse-proxies
   `/api/` and `/admin/` to the backend, so only port 80 needs to be public.
-- **Backend** runs `gunicorn` (2 workers/2 threads, capped `--max-requests` to
-  recycle workers) instead of `runserver`. It still runs `seed_data` to create
-  the admin account and one sample player — from `SEED_ADMIN_USERNAME`/
-  `SEED_ADMIN_PASSWORD` in `.env`, which **must** be changed from the dev
-  defaults before deploying. The sample player's password (`player123`) is
-  not env-configurable, so delete or deactivate that account once real
-  players start self-registering.
-- **Postgres** starts with reduced `shared_buffers`/`max_connections`/`work_mem`
-  — defaults are sized for far more concurrency than a 14-player league needs.
-- Each service has a `mem_limit` (db 200MB, backend 400MB, frontend 64MB —
-  about 660MB total) so one container can't starve the others; tune these to
-  match what you actually observe under load.
+- **Backend** runs `gunicorn` with a **single worker process** (`--workers 1
+  --threads 4`) instead of `runserver`. SQLite allows only one writer at a
+  time, so one process avoids cross-process lock contention on the db file;
+  WAL mode still lets reads proceed concurrently with a write. It still runs
+  `seed_data` to create the admin account and one sample player — from
+  `SEED_ADMIN_USERNAME`/`SEED_ADMIN_PASSWORD` in `.env`, which **must** be
+  changed from the dev defaults before deploying. The sample player's
+  password (`player123`) is not env-configurable, so delete or deactivate
+  that account once real players start self-registering.
+- The SQLite file lives on a named volume (`sqlite_data`, mounted at
+  `/app/data`) so it survives container recreation — there's no separate
+  database container at all.
+- Each service has a `mem_limit` (backend 350MB, frontend 64MB — under 420MB
+  total, leaving most of a 1GB box free) so one container can't starve the
+  other; tune these to match what you actually observe under load.
 - Uses an explicit Compose project name (`mnraw-prod`) so its volumes never
-  collide with the dev `docker-compose.yml`'s — otherwise both files resolve
-  to the same `postgres_data` volume when run from the same directory, and a
-  prod deploy can silently inherit leftover dev data.
+  collide with the dev `docker-compose.yml`'s if both are ever run on the
+  same host.
 
-Neither Postgres nor the backend's port is published to the host — only the
-frontend/nginx container's port 80 is, so all traffic goes through one
-reverse-proxied entry point.
+Only the frontend/nginx container's port 80 is published to the host — the
+backend has no exposed port, so all traffic goes through one reverse-proxied
+entry point.
 
 ## Design decisions
 
@@ -241,4 +208,5 @@ reverse-proxied entry point.
 2. **GoalEvent** is the source of truth for goals and assists.
 3. **Clean sheets** are derived from score + participation (never entered manually).
 4. **Player of the Week / Team of the Week / monthly awards** are computed automatically from match performance on finalize and stored as `Award` + `AwardRecipient` rows — there is no separate "Player of the Match" concept, since with one match per week the two would always be the same player.
-6. **Performance weights** live in `settings.PERFORMANCE_SCORE_WEIGHTS` / `stats/scoring.py`.
+5. **Performance weights** live in `settings.PERFORMANCE_SCORE_WEIGHTS` / `stats/scoring.py`.
+6. **SQLite (WAL mode)** is the only database — no separate DB server/container, sized for a small single-box deploy. Production runs a single gunicorn worker process to avoid cross-process write-lock contention on the db file.

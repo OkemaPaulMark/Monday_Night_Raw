@@ -3,14 +3,15 @@ Django settings for Monday Night Raw — 7-a-side football stats platform.
 
 Decision notes:
 - App renamed from `statistics` → `stats` (Python stdlib name conflict).
-- PostgreSQL is the primary database; SQLite is used only when USE_SQLITE=True
-  for quick local smoke tests without Docker.
+- SQLite is the only database (WAL mode) — no separate DB server/container,
+  sized for a small single-box deploy with ~14 users.
 - Performance score weights live in PERFORMANCE_SCORE_WEIGHTS (single source).
 """
 
 from pathlib import Path
 import os
 
+from django.db.backends.signals import connection_created
 from dotenv import load_dotenv
 
 # backend/ is BASE_DIR; project root is one level up
@@ -87,26 +88,32 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-USE_SQLITE = env_bool('USE_SQLITE', False)
+# SQLite is the only database: no separate DB server/container to run,
+# which matters on a memory-constrained single-box deploy. SQLITE_DB_PATH
+# lets Docker point this at a mounted volume so the file survives restarts.
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.getenv('SQLITE_DB_PATH', str(BASE_DIR / 'db.sqlite3')),
+    }
+}
 
-if USE_SQLITE:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('POSTGRES_DB', 'monday_night_raw'),
-            'USER': os.getenv('POSTGRES_USER', 'mnraw'),
-            'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'mnraw_dev_password'),
-            'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
-            'PORT': os.getenv('POSTGRES_PORT', '5432'),
-        }
-    }
+
+def _configure_sqlite_connection(sender, connection, **kwargs):
+    """
+    WAL mode lets readers and a writer proceed concurrently instead of
+    blocking on each other, and busy_timeout makes a writer wait briefly on
+    lock contention instead of immediately raising 'database is locked'.
+    """
+    if connection.vendor != 'sqlite':
+        return
+    with connection.cursor() as cursor:
+        cursor.execute('PRAGMA journal_mode=WAL;')
+        cursor.execute('PRAGMA synchronous=NORMAL;')
+        cursor.execute('PRAGMA busy_timeout=5000;')
+
+
+connection_created.connect(_configure_sqlite_connection)
 
 AUTH_USER_MODEL = 'accounts.User'
 
