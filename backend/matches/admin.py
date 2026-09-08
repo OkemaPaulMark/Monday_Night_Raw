@@ -1,13 +1,6 @@
 from django.contrib import admin
 
-from .models import (
-    GoalEvent,
-    Match,
-    MatchAvailability,
-    MatchParticipant,
-    MatchTeam,
-    MatchTeamPlayer,
-)
+from .models import GoalEvent, Match, MatchAvailability, MatchParticipant
 
 
 class MatchParticipantInline(admin.TabularInline):
@@ -22,15 +15,10 @@ class MatchAvailabilityInline(admin.TabularInline):
     autocomplete_fields = ('player',)
 
 
-class MatchTeamInline(admin.TabularInline):
-    model = MatchTeam
-    extra = 0
-
-
 class GoalEventInline(admin.TabularInline):
     model = GoalEvent
     extra = 0
-    autocomplete_fields = ('scorer', 'assister', 'scoring_team')
+    autocomplete_fields = ('scorer', 'assister')
 
 
 @admin.register(Match)
@@ -38,8 +26,6 @@ class MatchAdmin(admin.ModelAdmin):
     list_display = (
         'match_date',
         'status',
-        'team_a_score',
-        'team_b_score',
         'finalized_at',
     )
     list_filter = ('status',)
@@ -48,23 +34,8 @@ class MatchAdmin(admin.ModelAdmin):
     inlines = [
         MatchAvailabilityInline,
         MatchParticipantInline,
-        MatchTeamInline,
         GoalEventInline,
     ]
-
-
-class MatchTeamPlayerInline(admin.TabularInline):
-    model = MatchTeamPlayer
-    extra = 0
-    autocomplete_fields = ('player',)
-
-
-@admin.register(MatchTeam)
-class MatchTeamAdmin(admin.ModelAdmin):
-    list_display = ('match', 'side')
-    list_filter = ('side',)
-    search_fields = ('match__match_date', 'side')
-    inlines = [MatchTeamPlayerInline]
 
 
 @admin.register(MatchParticipant)
@@ -73,13 +44,7 @@ class MatchParticipantAdmin(admin.ModelAdmin):
     autocomplete_fields = ('player', 'match')
 
 
-@admin.register(MatchTeamPlayer)
-class MatchTeamPlayerAdmin(admin.ModelAdmin):
-    list_display = ('team', 'player')
-    autocomplete_fields = ('team', 'player')
-
-
 @admin.register(GoalEvent)
 class GoalEventAdmin(admin.ModelAdmin):
-    list_display = ('match', 'order', 'scoring_team', 'scorer', 'assister')
-    autocomplete_fields = ('match', 'scoring_team', 'scorer', 'assister')
+    list_display = ('match', 'order', 'scorer', 'assister')
+    autocomplete_fields = ('match', 'scorer', 'assister')

@@ -63,8 +63,8 @@ export default function DashboardPage() {
 
       {data.latest_match && (
         <div className="card">
-          <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Latest match</p>
-          <p className="display text-4xl mt-1">{data.latest_match.score}</p>
+          <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Latest matchday</p>
+          <p className="display text-4xl mt-1">{data.latest_match.goals} goals</p>
           <p className="text-sm text-[var(--color-muted)] mt-1">{data.latest_match.match_date}</p>
           {data.latest_match.potw && (
             <p className="mt-2">
@@ -72,7 +72,7 @@ export default function DashboardPage() {
             </p>
           )}
           <Link className="btn btn-secondary mt-4 w-full" to={`/matches/${data.latest_match.id}`}>
-            View match
+            View
           </Link>
         </div>
       )}
@@ -80,7 +80,6 @@ export default function DashboardPage() {
       <div className="grid gap-3">
         <LeaderCard label="Top scorer" row={data.top_scorer} metric="goals" />
         <LeaderCard label="Top assister" row={data.top_assister} metric="assists" />
-        <LeaderCard label="Clean sheets" row={data.most_clean_sheets} metric="clean_sheets" />
         <LeaderCard label="Most POTW" row={data.most_potw} metric="potw" />
       </div>
     </div>

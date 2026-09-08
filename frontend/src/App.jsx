@@ -10,7 +10,6 @@ import AwardsPage from './pages/AwardsPage'
 import ProfilePage from './pages/ProfilePage'
 import MatchesPage from './pages/MatchesPage'
 import MatchDetailPage from './pages/MatchDetailPage'
-import StandingsPage from './pages/StandingsPage'
 import {
   AdminDashboardPage,
   AdminPlayersPage,
@@ -37,7 +36,6 @@ export default function App() {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="leaderboard" element={<LeaderboardPage />} />
               <Route path="awards" element={<AwardsPage />} />
-              <Route path="standings" element={<StandingsPage />} />
               <Route path="matches" element={<MatchesPage />} />
               <Route path="matches/:id" element={<MatchDetailPage />} />
               <Route path="profile" element={<ProfilePage self />} />

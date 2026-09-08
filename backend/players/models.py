@@ -6,8 +6,7 @@ class Player(models.Model):
     """
     Persistent football player record.
 
-    Players are NOT recreated each Monday. Match-specific team membership
-    is handled via MatchTeamPlayer, not on this model.
+    Players are NOT recreated each Monday.
     """
 
     user = models.OneToOneField(

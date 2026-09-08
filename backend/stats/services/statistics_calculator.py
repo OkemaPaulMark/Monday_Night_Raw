@@ -1,4 +1,4 @@
-"""Authoritative player / leaderboard / standings statistics from match events."""
+"""Authoritative player / leaderboard statistics from match events."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal
 
 from awards.models import Award, AwardRecipient
-from matches.models import GoalEvent, Match, MatchTeam, MatchTeamPlayer
+from matches.models import GoalEvent, Match
 from players.models import Player
 from stats.scoring import calculate_match_performance_score, performance_to_rating
 
@@ -17,20 +17,14 @@ class PlayerStats:
     name: str
     profile_photo: str | None = None
     matches_played: int = 0
-    wins: int = 0
-    draws: int = 0
-    losses: int = 0
     goals: int = 0
     assists: int = 0
     goal_contributions: int = 0
-    clean_sheets: int = 0
     potw: int = 0
-    win_rate: float = 0.0
     rating: float = 0.0  # career average out of 5.0
 
     def to_dict(self) -> dict:
         data = asdict(self)
-        data['win_rate'] = round(self.win_rate, 1)
         data['rating'] = round(self.rating, 1)
         return data
 
@@ -53,43 +47,11 @@ def calculate_player_stats(player: Player) -> PlayerStats:
 
     rating_total = Decimal('0')
 
-    for match in matches.prefetch_related('teams__roster', 'goals'):
-        assignment = MatchTeamPlayer.objects.filter(
-            team__match=match,
-            player=player,
-        ).select_related('team').first()
-        if assignment is None:
-            continue
-
+    for match in matches.prefetch_related('goals'):
         stats.matches_played += 1
-        team = assignment.team
-        a = match.team_a_score or 0
-        b = match.team_b_score or 0
-        if team.side == MatchTeam.Side.A:
-            scored, conceded = a, b
-        else:
-            scored, conceded = b, a
-
-        if scored > conceded:
-            stats.wins += 1
-        elif scored == conceded:
-            stats.draws += 1
-        else:
-            stats.losses += 1
-
-        clean_sheet = conceded == 0
-        if clean_sheet:
-            stats.clean_sheets += 1
-
         match_goals = match.goals.filter(scorer=player).count()
         match_assists = match.goals.filter(assister=player).count()
-        raw = calculate_match_performance_score(
-            goals=match_goals,
-            assists=match_assists,
-            clean_sheet=clean_sheet,
-            won=(scored > conceded),
-            drew=(scored == conceded),
-        )
+        raw = calculate_match_performance_score(goals=match_goals, assists=match_assists)
         rating_total += performance_to_rating(raw)
 
     stats.goals = GoalEvent.objects.filter(
@@ -108,7 +70,6 @@ def calculate_player_stats(player: Player) -> PlayerStats:
     ).count()
 
     if stats.matches_played:
-        stats.win_rate = (stats.wins / stats.matches_played) * 100
         stats.rating = float(
             (rating_total / Decimal(stats.matches_played)).quantize(Decimal('0.1'))
         )
@@ -120,11 +81,8 @@ def leaderboard(ordering: str = '-goals') -> list[dict]:
         'goals', '-goals',
         'assists', '-assists',
         'goal_contributions', '-goal_contributions',
-        'clean_sheets', '-clean_sheets',
         'potw', '-potw',
         'matches_played', '-matches_played',
-        'wins', '-wins',
-        'win_rate', '-win_rate',
         'rating', '-rating',
         'name', '-name',
     }
@@ -148,55 +106,20 @@ def player_match_history(player: Player) -> list[dict]:
     history = []
     matches = _finalized_matches().filter(participants__player=player).order_by('-match_date')
     for match in matches:
-        assignment = MatchTeamPlayer.objects.filter(
-            team__match=match,
-            player=player,
-        ).select_related('team').first()
-        if not assignment:
-            continue
-        team = assignment.team
-        a = match.team_a_score or 0
-        b = match.team_b_score or 0
-        if team.side == MatchTeam.Side.A:
-            scored, conceded = a, b
-            opponent = 'Team B'
-        else:
-            scored, conceded = b, a
-            opponent = 'Team A'
-
-        if scored > conceded:
-            result = 'W'
-        elif scored == conceded:
-            result = 'D'
-        else:
-            result = 'L'
-
         goals = match.goals.filter(scorer=player).count()
         assists = match.goals.filter(assister=player).count()
-        clean_sheet = conceded == 0
         is_potw = AwardRecipient.objects.filter(
             player=player,
             award__match=match,
             award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
         ).exists()
-        raw = calculate_match_performance_score(
-            goals=goals,
-            assists=assists,
-            clean_sheet=clean_sheet,
-            won=(scored > conceded),
-            drew=(scored == conceded),
-        )
+        raw = calculate_match_performance_score(goals=goals, assists=assists)
 
         history.append({
             'match_id': match.id,
             'match_date': match.match_date,
-            'team': f'Team {team.side}',
-            'opponent': opponent,
-            'result': result,
-            'score': f'{a}-{b}',
             'goals': goals,
             'assists': assists,
-            'clean_sheet': clean_sheet,
             'potw': is_potw,
             'rating': float(performance_to_rating(raw)),
         })
@@ -204,76 +127,10 @@ def player_match_history(player: Player) -> list[dict]:
 
 
 def match_player_performance(match: Match, player: Player) -> Decimal:
-    assignment = MatchTeamPlayer.objects.filter(
-        team__match=match,
-        player=player,
-    ).select_related('team').first()
-    if assignment is None:
-        return Decimal(0)
-
-    team = assignment.team
-    a = match.team_a_score or 0
-    b = match.team_b_score or 0
-    if team.side == MatchTeam.Side.A:
-        scored, conceded = a, b
-    else:
-        scored, conceded = b, a
-
     return calculate_match_performance_score(
         goals=match.goals.filter(scorer=player).count(),
         assists=match.goals.filter(assister=player).count(),
-        clean_sheet=(conceded == 0),
-        won=(scored > conceded),
-        drew=(scored == conceded),
     )
-
-
-def team_label_standings() -> list[dict]:
-    """
-    Cumulative standings for match-label Team A / Team B.
-
-    Decision: these are labels across matches, not permanent clubs.
-    """
-    sides = [MatchTeam.Side.A, MatchTeam.Side.B]
-    rows = []
-    for side in sides:
-        played = wins = draws = losses = gf = ga = 0
-        teams = MatchTeam.objects.filter(
-            side=side,
-            match__finalized_at__isnull=False,
-        ).select_related('match')
-        for team in teams:
-            match = team.match
-            a = match.team_a_score or 0
-            b = match.team_b_score or 0
-            if side == MatchTeam.Side.A:
-                scored, conceded = a, b
-            else:
-                scored, conceded = b, a
-            played += 1
-            gf += scored
-            ga += conceded
-            if scored > conceded:
-                wins += 1
-            elif scored == conceded:
-                draws += 1
-            else:
-                losses += 1
-        points = wins * 3 + draws
-        rows.append({
-            'team': f'Team {side}',
-            'side': side,
-            'matches_played': played,
-            'wins': wins,
-            'draws': draws,
-            'losses': losses,
-            'goals_for': gf,
-            'goals_against': ga,
-            'goal_difference': gf - ga,
-            'points': points,
-        })
-    rows.sort(key=lambda r: (r['points'], r['goal_difference'], r['goals_for']), reverse=True)
-    return rows
 
 
 def dashboard_summary() -> dict:
@@ -297,6 +154,7 @@ def dashboard_summary() -> dict:
     )
 
     latest_match_potw = None
+    latest_match_goals = None
     if latest:
         recipients = AwardRecipient.objects.filter(
             award__match=latest,
@@ -304,6 +162,7 @@ def dashboard_summary() -> dict:
         ).select_related('player')
         if recipients:
             latest_match_potw = ', '.join(r.player.name for r in recipients)
+        latest_match_goals = latest.goals.count()
 
     return {
         'total_players': players.count(),
@@ -312,7 +171,7 @@ def dashboard_summary() -> dict:
             {
                 'id': latest.id,
                 'match_date': latest.match_date,
-                'score': f'{latest.team_a_score}-{latest.team_b_score}',
+                'goals': latest_match_goals,
                 'potw': latest_match_potw,
             }
             if latest
@@ -328,7 +187,6 @@ def dashboard_summary() -> dict:
         ),
         'top_scorer': top('goals'),
         'top_assister': top('assists'),
-        'most_clean_sheets': top('clean_sheets'),
         'top_rated': top('rating'),
         'most_potw': top('potw'),
     }

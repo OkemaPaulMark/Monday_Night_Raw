@@ -10,9 +10,11 @@ from django.db.models import Count
 from rest_framework.exceptions import ValidationError
 
 from awards.models import Award, AwardRecipient
-from matches.models import GoalEvent, Match, MatchTeamPlayer
+from matches.models import Match
 from players.models import Player
 from stats.services.statistics_calculator import match_player_performance
+
+TOTW_SIZE = 7
 
 
 @transaction.atomic
@@ -35,7 +37,10 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
     scored: list[tuple[Player, Decimal]] = []
     for player in participants:
         scored.append((player, match_player_performance(match, player)))
-    scored.sort(key=lambda item: item[1], reverse=True)
+    # Score descending, then name ascending as a deterministic tie-break —
+    # matters most for "also played" attendees who all sit at 0 and need a
+    # stable, explainable fill order for the remaining Team of the Week spots.
+    scored.sort(key=lambda item: (-item[1], item[0].name.lower()))
 
     if not scored:
         raise ValidationError({'detail': 'No participants available for awards.'})
@@ -57,7 +62,10 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
             rank=rank,
         )
 
-    totw_size = max(match.participants.count() // 2, 1)
+    # Fixed at TOTW_SIZE regardless of turnout — turnout is dynamic (12 one
+    # week, 20+ the next), and "Team of the Week" should still mean a normal
+    # team size, not scale up on a big-turnout day.
+    totw_size = min(TOTW_SIZE, len(scored))
     totw = Award.objects.create(
         award_type=Award.AwardType.TEAM_OF_THE_WEEK,
         match=match,
@@ -111,13 +119,6 @@ def generate_monthly_awards(year: int, month: int) -> list[Award]:
         month=month,
         match__isnull=True,
     ).delete()
-
-    # Aggregate via player stats scoped to month
-    player_ids = set(
-        MatchTeamPlayer.objects.filter(team__match__in=matches)
-        .values_list('player_id', flat=True)
-    )
-    players = Player.objects.filter(id__in=player_ids)
 
     goals: dict[int, int] = defaultdict(int)
     assists: dict[int, int] = defaultdict(int)

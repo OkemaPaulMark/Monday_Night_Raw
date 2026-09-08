@@ -56,11 +56,11 @@ export default function MatchesPage() {
           ) : null
         }
       >
-        Matches
+        Stats
       </SectionTitle>
       {!isAdmin && (
         <p className="text-sm text-[var(--color-muted)] -mt-2">
-          Toggle whether you’re in for an upcoming Monday. Admin confirms the final squad (10–14 players).
+          Toggle whether you’re in for an upcoming Monday. Admin logs goals and assists after.
         </p>
       )}
       <ErrorBanner message={error} />
@@ -83,12 +83,15 @@ export default function MatchesPage() {
                     <p className="font-semibold">{m.match_date}</p>
                     <p className="text-sm text-[var(--color-muted)]">
                       {m.status}
-                      {m.squad_size ? ` · Squad ${m.squad_size}` : ''}
+                      {m.squad_size ? ` · ${m.squad_size} on the scoresheet` : ''}
                     </p>
                   </div>
-                  <p className="display text-4xl text-[var(--color-lime)]">
-                    {m.team_a_score != null ? `${m.team_a_score}-${m.team_b_score}` : 'vs'}
-                  </p>
+                  <div className="text-right">
+                    <p className="display text-4xl text-[var(--color-lime)] leading-none">
+                      {m.is_finalized ? m.goals?.length ?? 0 : '—'}
+                    </p>
+                    {m.is_finalized && <p className="text-xs text-[var(--color-muted)]">goals</p>}
+                  </div>
                 </Link>
 
                 {!isAdmin && openForRsvp && user?.player_id && (

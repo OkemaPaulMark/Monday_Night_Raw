@@ -74,13 +74,10 @@ export default function PlayerStatsModal({ playerId, onClose }) {
           <>
             <div className="stat-grid mb-4">
               <StatTile label="Matches" value={stats.matches_played} />
-              <StatTile label="Win %" value={`${stats.win_rate}%`} />
               <StatTile label="Goals" value={stats.goals} />
               <StatTile label="Assists" value={stats.assists} />
               <StatTile label="G+A" value={stats.goal_contributions} />
-              <StatTile label="Clean sheets" value={stats.clean_sheets} />
               <StatTile label="POTW" value={stats.potw} />
-              <StatTile label="W-D-L" value={`${stats.wins}-${stats.draws}-${stats.losses}`} />
             </div>
             <Link className="btn btn-primary w-full" to={`/players/${playerId}`} onClick={onClose}>
               Open full profile

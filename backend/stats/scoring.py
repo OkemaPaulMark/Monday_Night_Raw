@@ -15,10 +15,6 @@ from django.conf import settings
 class PerformanceWeights:
     goal: int
     assist: int
-    clean_sheet: int
-    win: int
-    draw: int
-    potw: int
     rating_points_for_five: int
 
 
@@ -27,10 +23,6 @@ def get_weights() -> PerformanceWeights:
     return PerformanceWeights(
         goal=int(raw['GOAL_WEIGHT']),
         assist=int(raw['ASSIST_WEIGHT']),
-        clean_sheet=int(raw['CLEAN_SHEET_WEIGHT']),
-        win=int(raw['WIN_WEIGHT']),
-        draw=int(raw.get('DRAW_WEIGHT', 1)),
-        potw=int(raw.get('POTW_WEIGHT', 8)),
         rating_points_for_five=int(raw.get('RATING_POINTS_FOR_FIVE', 12)),
     )
 
@@ -39,19 +31,16 @@ def calculate_match_performance_score(
     *,
     goals: int = 0,
     assists: int = 0,
-    clean_sheet: bool = False,
-    won: bool = False,
-    drew: bool = False,
 ) -> Decimal:
-    """Deterministic per-match performance score used for POTW / TOTW / balancing."""
+    """
+    Deterministic per-match performance score used for POTW / TOTW.
+
+    Goals and assists only — there's no team score or fixed-team concept to
+    derive clean sheets or wins/draws from (teams are formed on the pitch
+    each week, never tracked in the app).
+    """
     w = get_weights()
-    total = (
-        goals * w.goal
-        + assists * w.assist
-        + (w.clean_sheet if clean_sheet else 0)
-        + (w.win if won else 0)
-        + (w.draw if drew else 0)
-    )
+    total = goals * w.goal + assists * w.assist
     return Decimal(total)
 
 
@@ -60,7 +49,6 @@ def performance_to_rating(score: Decimal | int | float) -> Decimal:
     Map raw performance points to a 0.0–5.0 player rating.
 
     Default: 12 performance points ≈ 5.0 stars (configurable, generous scale).
-    Clean sheets count toward the raw score via CLEAN_SHEET_WEIGHT.
     """
     w = get_weights()
     full = Decimal(max(w.rating_points_for_five, 1))

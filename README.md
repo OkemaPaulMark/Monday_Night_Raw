@@ -1,6 +1,6 @@
 # Monday Night Raw
 
-Private **7-a-side football statistics and awards** platform for a fixed group of 14 classmates who play every Monday.
+Private **7-a-side football statistics and awards** platform for a group of classmates who play every Monday. Turnout is dynamic — some weeks it's 12 people, some weeks it's 20+ across 3 informal teams — so the app tracks who played and who scored/assisted, not fixed teams or a match score.
 
 > Phase 1 (Foundation) is implemented: Django project, database config, models, migrations, seed data.
 > Frontend React PWA arrives in Phase 3.
@@ -20,7 +20,7 @@ Private **7-a-side football statistics and awards** platform for a fixed group o
 
 - `accounts` — custom `User` with roles
 - `players` — persistent player profiles
-- `matches` — matches, participants, teams, goal events
+- `matches` — matchdays, participants, goal events
 - `stats` — performance scoring + statistics services (Phase 2)
 - `awards` — weekly / monthly awards
 
@@ -28,12 +28,11 @@ Private **7-a-side football statistics and awards** platform for a fixed group o
 
 ## Features (spec)
 
-- Weekly Monday match management
-- Manual / random / balanced team generation
-- Post-match score, goals, assists entry
-- Auto clean sheets, stats, Player of the Week, Team of the Week
+- Weekly Monday matchday management — no fixed squad size, teams formed on the pitch
+- Post-match goals/assists entry (no score, no team assignment)
+- Auto stats, Player of the Week (ties supported), Team of the Week (fixed at 7)
 - Monthly awards (auto-generated on finalize) + leaderboards + player profiles
-- Admin finalize workflow (~2–5 minutes)
+- Admin finalize workflow
 
 ## Requirements
 
@@ -80,7 +79,7 @@ See `.env.example` for the full list. Important keys:
 - `SQLITE_DB_PATH` — overrides where the SQLite file lives (defaults to `backend/db.sqlite3`)
 - `CORS_ALLOWED_ORIGINS`
 - `SEED_ADMIN_*`
-- Performance weights: `GOAL_WEIGHT`, `ASSIST_WEIGHT`, `CLEAN_SHEET_WEIGHT`, `WIN_WEIGHT`
+- Performance weights: `GOAL_WEIGHT`, `ASSIST_WEIGHT` (goals + assists only — no team/score to derive anything else from)
 
 ## API documentation
 
@@ -103,15 +102,11 @@ REST endpoints for players/matches/awards land in **Phase 2**.
 | GET | `/api/players/{id}/statistics/` | |
 | GET | `/api/players/{id}/match-history/` | |
 | GET/POST | `/api/matches/` | Admin write |
-| POST | `/api/matches/{id}/participants/` | |
-| POST | `/api/matches/{id}/teams/` | Manual assign |
-| POST | `/api/matches/{id}/generate-teams/` | `{method: random\|balanced}` |
-| POST | `/api/matches/{id}/score/` | |
-| POST | `/api/matches/{id}/goals/` | |
+| POST | `/api/matches/{id}/participants/` | Who played — no team split, no squad-size fixed cap |
+| POST | `/api/matches/{id}/goals/` | `{goals: [{scorer_id, assister_id?}], also_played?: [id...]}` — no score, no team |
 | POST | `/api/matches/{id}/finalize/` | Auto-selects Player of the Week, Team of the Week, and that month's awards |
 | POST | `/api/matches/{id}/reopen/` | Admin correction |
 | GET | `/api/leaderboard/?ordering=-goals` | |
-| GET | `/api/standings/` | Team A/B label standings |
 | GET | `/api/dashboard/` | |
 | GET | `/api/awards/weekly/` | |
 | GET/POST | `/api/awards/monthly/` | POST generates month |
@@ -129,7 +124,7 @@ python manage.py test matches.tests.test_match_flow awards.tests.test_awards
 1. **Phase 1 — Foundation** ✅ models, migrations, seed, Docker
 2. **Phase 2 — Backend** ✅ REST API, services, validation, tests
 3. **Phase 3 — Frontend** ✅ React PWA (admin + player workflows)
-4. **Phase 4 — Integration** ✅ login → match → teams → result → finalize → stats/awards
+4. **Phase 4 — Integration** ✅ login → goals/assists (+ also played) → finalize → stats/awards
 5. **Phase 5 — Polish** ✅ spec audit fixes (manual teams, ALLOWED_HOSTS, docs)
 
 ## Running the frontend
@@ -204,9 +199,21 @@ entry point.
 
 ## Design decisions
 
-1. **Team A / Team B** are match-specific labels, not permanent clubs.
+1. **No teams, no score.** Turnout is dynamic (12 one week, 20+ across 3 informal teams the
+   next), so teams are formed on the pitch and never tracked in the app — a matchday just
+   records who played (`MatchParticipant`) and who scored/assisted (`GoalEvent`).
 2. **GoalEvent** is the source of truth for goals and assists.
-3. **Clean sheets** are derived from score + participation (never entered manually).
-4. **Player of the Week / Team of the Week / monthly awards** are computed automatically from match performance on finalize and stored as `Award` + `AwardRecipient` rows — there is no separate "Player of the Match" concept, since with one match per week the two would always be the same player.
-5. **Performance weights** live in `settings.PERFORMANCE_SCORE_WEIGHTS` / `stats/scoring.py`.
-6. **SQLite (WAL mode)** is the only database — no separate DB server/container, sized for a small single-box deploy. Production runs a single gunicorn worker process to avoid cross-process write-lock contention on the db file.
+3. **No clean sheets, wins, or losses** — those need a team side and a score, neither of which
+   exists. Performance score is goals + assists only (`stats/scoring.py`).
+4. **Player of the Week / Team of the Week / monthly awards** are computed automatically from
+   match performance on finalize and stored as `Award` + `AwardRecipient` rows — there is no
+   separate "Player of the Match" concept, since with one match per week the two would always
+   be the same player.
+5. **Team of the Week is fixed at 7** regardless of turnout — it ranks that day's attendees by
+   goals+assists and takes the top 7 (or all of them, if fewer than 7 played), so a
+   big-turnout day doesn't inflate it into a 10+ person "team".
+6. **No squad-size limit at all.** Participants are derived from whoever scores/assists that
+   day (`replace_goals`), and finalize accepts any count — the only requirement is at least
+   one participant.
+7. **Performance weights** live in `settings.PERFORMANCE_SCORE_WEIGHTS` / `stats/scoring.py`.
+8. **SQLite (WAL mode)** is the only database — no separate DB server/container, sized for a small single-box deploy. Production runs a single gunicorn worker process to avoid cross-process write-lock contention on the db file.

@@ -43,7 +43,6 @@ class PlayerViewSet(viewsets.ModelViewSet):
             player.participations.exists()
             or player.goals_scored.exists()
             or player.assists_made.exists()
-            or player.team_assignments.exists()
             or player.awards_received.exists()
         )
         if has_history:

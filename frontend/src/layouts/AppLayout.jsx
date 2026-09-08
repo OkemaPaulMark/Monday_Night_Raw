@@ -1,31 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { playersApi } from '../services/endpoints'
 import PlayerAvatar from '../components/PlayerAvatar'
 
 const playerLinks = [
   { to: '/', label: 'Home', end: true },
   { to: '/leaderboard', label: 'Board' },
   { to: '/awards', label: 'Awards' },
-  { to: '/matches', label: 'Matches' },
   { to: '/profile', label: 'Me' },
 ]
 
 const adminLinks = [
   { to: '/admin', label: 'Admin', end: true },
-  { to: '/admin/matches', label: 'Matches' },
+  { to: '/admin/matches', label: 'Stats' },
   { to: '/admin/players', label: 'Players' },
   { to: '/leaderboard', label: 'Board' },
   { to: '/awards', label: 'Awards' },
 ]
 
 export default function AppLayout() {
-  const { user, isAdmin, logout } = useAuth()
+  const { user, isAdmin, logout, avatarPlayer } = useAuth()
   const links = isAdmin ? adminLinks : playerLinks
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
-  const [avatarPlayer, setAvatarPlayer] = useState(null)
 
   const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username
 
@@ -39,20 +36,6 @@ export default function AppLayout() {
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [menuOpen])
-
-  useEffect(() => {
-    if (!user?.player_id) {
-      setAvatarPlayer(null)
-      return
-    }
-    let cancelled = false
-    playersApi.get(user.player_id).then((p) => {
-      if (!cancelled) setAvatarPlayer(p)
-    }).catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [user?.player_id])
 
   return (
     <div className="app-shell">

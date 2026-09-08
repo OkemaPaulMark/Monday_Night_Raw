@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { authApi } from '../services/endpoints'
+import { authApi, playersApi } from '../services/endpoints'
 
 const AuthContext = createContext(null)
 
@@ -7,6 +7,24 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [token, setToken] = useState(() => localStorage.getItem('mnraw_token'))
   const [loading, setLoading] = useState(true)
+  const [avatarPlayer, setAvatarPlayer] = useState(null)
+
+  async function refreshAvatarPlayer(playerId) {
+    if (!playerId) {
+      setAvatarPlayer(null)
+      return
+    }
+    try {
+      const p = await playersApi.get(playerId)
+      setAvatarPlayer(p)
+    } catch {
+      /* ignore — header just falls back to initials */
+    }
+  }
+
+  useEffect(() => {
+    refreshAvatarPlayer(user?.player_id)
+  }, [user?.player_id])
 
   useEffect(() => {
     let cancelled = false
@@ -39,6 +57,8 @@ export function AuthProvider({ children }) {
       user,
       token,
       loading,
+      avatarPlayer,
+      refreshAvatarPlayer: () => refreshAvatarPlayer(user?.player_id),
       isAdmin: Boolean(user?.is_app_admin || user?.role === 'ADMIN'),
       async login(username, password) {
         const data = await authApi.login(username, password)
@@ -54,6 +74,11 @@ export function AuthProvider({ children }) {
         setUser(data.user)
         return data.user
       },
+      async updateProfile(payload) {
+        const updated = await authApi.updateMe(payload)
+        setUser(updated)
+        return updated
+      },
       async logout() {
         try {
           await authApi.logout()
@@ -65,7 +90,7 @@ export function AuthProvider({ children }) {
         setUser(null)
       },
     }),
-    [user, token, loading],
+    [user, token, loading, avatarPlayer],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

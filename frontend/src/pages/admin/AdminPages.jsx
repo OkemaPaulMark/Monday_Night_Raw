@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { matchesApi, playersApi, statsApi } from '../../services/endpoints'
 import { ErrorBanner, LoadingState, SectionTitle, StatTile } from '../../components/ui'
@@ -9,42 +9,24 @@ function unwrapList(data) {
   return data?.results || []
 }
 
-function teamSideMap(match) {
-  const map = { A: [], B: [] }
-  for (const team of match?.teams || []) {
-    map[team.side] = team.roster.map((r) => r.player)
-  }
-  return map
+function PowerIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </svg>
+  )
 }
 
-const SETUP_STEPS = [
-  { id: 1, label: 'Squad' },
-  { id: 2, label: 'Teams' },
-]
-
-const RESULT_STEPS = [
-  { id: 3, label: 'Score' },
-  { id: 4, label: 'Goals' },
-  { id: 5, label: 'Finish' },
-]
-
-const MIN_SQUAD = 10
-const MAX_SQUAD = 14
-
-function isValidSquadCount(n) {
-  return n >= MIN_SQUAD && n <= MAX_SQUAD && n % 2 === 0
-}
-
-function detectPhase(match) {
-  if (!match) return 'setup'
-  const hasTeams = (match.teams || []).length === 2
-    && match.teams.every((t) => (t.roster || []).length > 0)
-  const hasScore = match.team_a_score != null && match.team_b_score != null
-  if (hasScore || (match.goals || []).length > 0) {
-    return 'results'
-  }
-  if (hasTeams) return 'ready'
-  return 'setup'
+function TrashIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  )
 }
 
 export function AdminDashboardPage() {
@@ -70,8 +52,8 @@ export function AdminDashboardPage() {
 
           {data.latest_match && (
             <div className="card">
-              <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Latest match</p>
-              <p className="display text-4xl mt-1">{data.latest_match.score}</p>
+              <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Latest matchday</p>
+              <p className="display text-4xl mt-1">{data.latest_match.goals} goals</p>
               <p className="text-sm text-[var(--color-muted)] mt-1">{data.latest_match.match_date}</p>
               {data.latest_match.potw && (
                 <p className="mt-2">
@@ -79,7 +61,7 @@ export function AdminDashboardPage() {
                 </p>
               )}
               <Link className="btn btn-secondary mt-4 w-full" to={`/admin/matches/${data.latest_match.id}`}>
-                Open match
+                Open
               </Link>
             </div>
           )}
@@ -88,7 +70,6 @@ export function AdminDashboardPage() {
             {[
               ['Top scorer', data.top_scorer, 'goals'],
               ['Top assister', data.top_assister, 'assists'],
-              ['Clean sheets', data.most_clean_sheets, 'clean_sheets'],
               ['Most POTW', data.most_potw, 'potw'],
             ].map(([label, row, metric]) => (
               <div key={label} className="card flex items-center justify-between gap-3">
@@ -147,6 +128,20 @@ export function AdminPlayersPage() {
     }
   }
 
+  async function onDelete(p) {
+    if (!window.confirm(`Delete ${p.name}? This can't be undone.`)) return
+    setError('')
+    setBusyId(p.id)
+    try {
+      await playersApi.remove(p.id)
+      await load()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <SectionTitle>Players</SectionTitle>
@@ -164,15 +159,28 @@ export function AdminPlayersPage() {
                 </p>
               </div>
             </Link>
-            <button
-              type="button"
-              className="btn btn-secondary shrink-0"
-              style={{ minHeight: 36, padding: '0.3rem 0.7rem' }}
-              disabled={busyId === p.id}
-              onClick={() => toggleActive(p)}
-            >
-              {p.is_active ? 'Deactivate' : 'Activate'}
-            </button>
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                className="btn btn-secondary icon-btn"
+                disabled={busyId === p.id}
+                onClick={() => toggleActive(p)}
+                title={p.is_active ? 'Deactivate' : 'Activate'}
+                aria-label={p.is_active ? 'Deactivate' : 'Activate'}
+              >
+                <PowerIcon style={{ opacity: p.is_active ? 1 : 0.4 }} />
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger icon-btn"
+                disabled={busyId === p.id}
+                onClick={() => onDelete(p)}
+                title="Delete"
+                aria-label="Delete"
+              >
+                <TrashIcon />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -202,18 +210,19 @@ export function CreateMatchPage() {
 
   return (
     <div className="space-y-4">
-      <SectionTitle>New match</SectionTitle>
+      <SectionTitle>New matchday</SectionTitle>
       <ErrorBanner message={error} />
       <form className="card space-y-3" onSubmit={onSubmit}>
         <p className="text-sm text-[var(--color-muted)]">
-          Step 1 of match entry — pick the Monday date. Players can RSVP; you’ll confirm a 10–14 player squad next.
+          Pick the date, then log who scored and who assisted — no squad
+          list or teams needed, just pick from your registered players.
         </p>
         <div className="field">
-          <label>Monday date</label>
+          <label>Date</label>
           <input type="date" value={matchDate} onChange={(e) => setMatchDate(e.target.value)} required />
         </div>
         <button className="btn btn-primary w-full" disabled={saving} type="submit">
-          {saving ? 'Creating…' : 'Continue to squad'}
+          {saving ? 'Creating…' : 'Continue to goals & assists'}
         </button>
       </form>
     </div>
@@ -225,178 +234,69 @@ export function MatchWizardPage() {
   const navigate = useNavigate()
   const [match, setMatch] = useState(null)
   const [players, setPlayers] = useState([])
-  const [selected, setSelected] = useState([])
-  const [scoreA, setScoreA] = useState(0)
-  const [scoreB, setScoreB] = useState(0)
   const [goals, setGoals] = useState([])
-  const [ratings, setRatings] = useState(null)
-  const [manualA, setManualA] = useState([])
-  const [manualB, setManualB] = useState([])
+  const [alsoPlayed, setAlsoPlayed] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [step, setStep] = useState(1)
-  const [phase, setPhase] = useState('setup') // setup | ready | results
-
-  const sides = useMemo(() => teamSideMap(match), [match])
-  const playerById = useMemo(() => {
-    const map = {}
-    for (const p of players) map[p.id] = p
-    for (const p of match?.participants?.map((x) => x.player) || []) map[p.id] = p
-    return map
-  }, [players, match])
-
-  const unassigned = useMemo(() => {
-    const taken = new Set([...manualA, ...manualB])
-    return (match?.participants || [])
-      .map((x) => x.player)
-      .filter((p) => !taken.has(p.id))
-  }, [match, manualA, manualB])
 
   async function reload() {
     const [m, p] = await Promise.all([matchesApi.get(id), playersApi.list({ is_active: true })])
     setMatch(m)
-    const list = unwrapList(p)
-    setPlayers(list)
-    const participantIds = m.participants.map((x) => x.player.id)
-    setSelected(participantIds.length ? participantIds : list.map((x) => x.id))
-    setScoreA(m.team_a_score ?? 0)
-    setScoreB(m.team_b_score ?? 0)
-    const mapped = teamSideMap(m)
-    setManualA(mapped.A.map((x) => x.id))
-    setManualB(mapped.B.map((x) => x.id))
+    setPlayers(unwrapList(p))
     setGoals(
-      m.goals.map((g) => ({
-        scoring_team: g.scoring_team_side,
-        scorer_id: g.scorer.id,
-        assister_id: g.assister?.id ?? null,
-      })),
+      m.goals.length
+        ? m.goals.map((g) => ({ scorer_id: g.scorer.id, assister_id: g.assister?.id ?? null }))
+        : [{ scorer_id: '', assister_id: null }],
     )
-    const nextPhase = detectPhase(m)
-    setPhase(nextPhase)
-    if (nextPhase === 'setup') {
-      setStep(m.participants?.length ? 2 : 1)
-    } else if (nextPhase === 'results') {
-      if ((m.goals || []).length) setStep(5)
-      else if (m.team_a_score != null) setStep(4)
-      else setStep(3)
+    // Anyone recorded as a participant who wasn't a scorer/assister must
+    // have been explicitly marked "also played" last time.
+    const involved = new Set()
+    for (const g of m.goals) {
+      involved.add(g.scorer.id)
+      if (g.assister) involved.add(g.assister.id)
     }
+    setAlsoPlayed(
+      m.participants.map((row) => row.player.id).filter((pid) => !involved.has(pid)),
+    )
   }
 
   useEffect(() => {
     reload().catch((e) => setError(e.message))
   }, [id])
 
-  function togglePlayer(playerId) {
-    setSelected((prev) =>
+  function addGoalRow() {
+    setGoals((prev) => [...prev, { scorer_id: '', assister_id: null }])
+  }
+
+  function removeGoalRow(index) {
+    setGoals((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function toggleAlsoPlayed(playerId) {
+    setAlsoPlayed((prev) =>
       prev.includes(playerId) ? prev.filter((x) => x !== playerId) : [...prev, playerId],
     )
   }
 
-  async function saveParticipants() {
-    setBusy(true)
-    setError('')
-    try {
-      const m = await matchesApi.setParticipants(id, selected)
-      setMatch(m)
-      setManualA([])
-      setManualB([])
-      setStep(2)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function generate(method) {
-    setBusy(true)
-    setError('')
-    try {
-      const m = await matchesApi.generateTeams(id, method)
-      setMatch(m)
-      setRatings(m.team_ratings || null)
-      const mapped = teamSideMap(m)
-      setManualA(mapped.A.map((x) => x.id))
-      setManualB(mapped.B.map((x) => x.id))
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function assignManual(playerId, side) {
-    const squadCount = match?.participants?.length || selected.length
-    const teamCap = Math.max(Math.floor(squadCount / 2), 5)
-    setManualA((prev) => prev.filter((x) => x !== playerId))
-    setManualB((prev) => prev.filter((x) => x !== playerId))
-    if (side === 'A') {
-      setManualA((prev) => (prev.length >= teamCap ? prev : [...prev, playerId]))
-    }
-    if (side === 'B') {
-      setManualB((prev) => (prev.length >= teamCap ? prev : [...prev, playerId]))
-    }
-  }
-
-  function clearAssignment(playerId) {
-    setManualA((prev) => prev.filter((x) => x !== playerId))
-    setManualB((prev) => prev.filter((x) => x !== playerId))
-  }
-
-  async function saveManualTeams() {
-    setBusy(true)
-    setError('')
-    try {
-      const m = await matchesApi.setTeams(id, manualA, manualB)
-      setMatch(m)
-      setRatings(null)
-      setPhase('ready')
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function rebuildGoalSlots(a, b) {
-    const total = Number(a) + Number(b)
-    setGoals((prev) => {
-      const next = [...prev]
-      while (next.length < total) {
-        next.push({ scoring_team: 'A', scorer_id: '', assister_id: null })
-      }
-      return next.slice(0, total)
-    })
-  }
-
-  async function saveScore() {
-    setBusy(true)
-    setError('')
-    try {
-      const m = await matchesApi.setScore(id, Number(scoreA), Number(scoreB))
-      setMatch(m)
-      rebuildGoalSlots(scoreA, scoreB)
-      setStep(4)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
+  const involvedInGoals = new Set(
+    goals.flatMap((g) => [g.scorer_id, g.assister_id].filter(Boolean).map(Number)),
+  )
+  const alsoPlayedOptions = players.filter((p) => !involvedInGoals.has(p.id))
 
   async function saveGoals() {
     setBusy(true)
     setError('')
     try {
-      const payload = goals.map((g, index) => ({
-        scoring_team: g.scoring_team,
-        scorer_id: Number(g.scorer_id),
-        assister_id: g.assister_id ? Number(g.assister_id) : null,
-        order: index + 1,
-      }))
-      const m = await matchesApi.setGoals(id, payload)
+      const payload = goals
+        .filter((g) => g.scorer_id)
+        .map((g, index) => ({
+          scorer_id: Number(g.scorer_id),
+          assister_id: g.assister_id ? Number(g.assister_id) : null,
+          order: index + 1,
+        }))
+      const alsoPlayedIds = alsoPlayed.filter((pid) => !involvedInGoals.has(pid))
+      const m = await matchesApi.setGoals(id, payload, alsoPlayedIds)
       setMatch(m)
-      setStep(5)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -408,6 +308,7 @@ export function MatchWizardPage() {
     setBusy(true)
     setError('')
     try {
+      await saveGoals()
       const m = await matchesApi.finalize(id)
       setMatch(m)
       navigate(`/matches/${m.id}`)
@@ -424,8 +325,6 @@ export function MatchWizardPage() {
     try {
       const m = await matchesApi.reopen(id)
       setMatch(m)
-      setPhase('results')
-      setStep(3)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -435,348 +334,111 @@ export function MatchWizardPage() {
 
   if (!match) return <LoadingState />
 
-  const participantPlayers = match.participants.map((p) => p.player)
-  const scorersFor = (side) => sides[side] || []
-  const teamCap = Math.max(Math.floor((match.participants.length || selected.length) / 2), 5)
-  const teamsReady = sides.A?.length === teamCap && sides.B?.length === teamCap && teamCap >= 5
-  const availabilityByPlayer = Object.fromEntries(
-    (match.availabilities || []).map((a) => [a.player.id, a.status]),
-  )
-  const availableIds = players
-    .filter((p) => availabilityByPlayer[p.id] === 'AVAILABLE')
-    .map((p) => p.id)
-
   return (
     <div className="space-y-4">
-      <SectionTitle>Match day</SectionTitle>
+      <SectionTitle>Matchday</SectionTitle>
       <p className="text-sm text-[var(--color-muted)] -mt-2">
         {match.match_date} · {match.status}{match.is_finalized ? ' · Finalized' : ''}
-        {phase === 'setup' ? ' · Before kickoff' : ''}
-        {phase === 'ready' ? ' · Teams set — play first' : ''}
-        {phase === 'results' ? ' · After the match' : ''}
       </p>
       <ErrorBanner message={error} />
 
       {match.is_finalized ? (
         <div className="card space-y-3">
-          <p>Finalized — stats, Player of the Match, Player of the Week, and Team of the Week are live.</p>
+          <p>Finalized — stats, Player of the Week, and Team of the Week are live.</p>
           <Link className="btn btn-primary w-full" to="/awards">View awards</Link>
-          <Link className="btn btn-secondary w-full" to={`/matches/${match.id}`}>View match</Link>
+          <Link className="btn btn-secondary w-full" to={`/matches/${match.id}`}>View stats</Link>
           <button type="button" className="btn btn-danger w-full" onClick={reopen} disabled={busy}>
             Reopen for corrections
           </button>
         </div>
       ) : (
-        <>
-          {phase === 'setup' && (
-            <div className="wizard-steps">
-              {SETUP_STEPS.map((s) => (
+        <div className="card space-y-3">
+          <h3 className="font-bold">Goals & assists ({goals.filter((g) => g.scorer_id).length})</h3>
+          <p className="text-sm text-[var(--color-muted)]">
+            One row per goal — scorer + optional assist, from all registered players.
+            No score, no squad list, no teams.
+          </p>
+          {goals.map((g, index) => (
+            <div key={index} className="grid gap-2 border-b border-white/10 pb-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-[var(--color-muted)]">Goal {index + 1}</p>
                 <button
-                  key={s.id}
                   type="button"
-                  className={`wizard-step ${step === s.id ? 'active' : ''}`}
-                  onClick={() => setStep(s.id)}
+                  className="btn btn-secondary"
+                  style={{ minHeight: 28, padding: '0.15rem 0.5rem', fontSize: '0.75rem' }}
+                  onClick={() => removeGoalRow(index)}
                 >
-                  <span className="num">Before · {s.id}</span>
-                  <span className="label">{s.label}</span>
+                  Remove
                 </button>
-              ))}
-            </div>
-          )}
-
-          {phase === 'results' && (
-            <div className="wizard-steps">
-              {RESULT_STEPS.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`wizard-step ${step === s.id ? 'active' : ''}`}
-                  onClick={() => setStep(s.id)}
-                >
-                  <span className="num">After · {s.id - 2}</span>
-                  <span className="label">{s.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {phase === 'ready' && (
-            <div className="card space-y-4">
-              <h3 className="font-bold">Teams locked — go play</h3>
-              <p className="text-sm text-[var(--color-muted)]">
-                Squad and teams are set. Come back after the match to enter the score, goals, and assists.
-                Player of the Week and Team of the Week are calculated automatically when you finalize.
-              </p>
-              <div className="team-board">
-                {['A', 'B'].map((side) => (
-                  <div key={side} className="team-column">
-                    <p className="font-bold mb-2">Team {side}</p>
-                    {(sides[side] || []).map((p) => (
-                      <div key={p.id} className="player-chip" style={{ cursor: 'default' }}>
-                        <PlayerAvatar player={p} size={32} />
-                        <span className="text-sm truncate">{p.name}</span>
-                      </div>
-                    ))}
-                  </div>
+              </div>
+              <select
+                value={g.scorer_id}
+                onChange={(e) => {
+                  const next = [...goals]
+                  next[index] = { ...next[index], scorer_id: e.target.value }
+                  setGoals(next)
+                }}
+              >
+                <option value="">Scorer</option>
+                {players.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary w-full"
-                onClick={() => {
-                  setPhase('results')
-                  setStep(3)
+              </select>
+              <select
+                value={g.assister_id ?? ''}
+                onChange={(e) => {
+                  const next = [...goals]
+                  next[index] = {
+                    ...next[index],
+                    assister_id: e.target.value ? e.target.value : null,
+                  }
+                  setGoals(next)
                 }}
               >
-                Enter match results
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary w-full"
-                onClick={() => {
-                  setPhase('setup')
-                  setStep(2)
-                }}
-              >
-                Edit teams
-              </button>
-              <Link className="btn btn-secondary w-full" to="/admin/matches">
-                Back to matches
-              </Link>
+                <option value="">Assist — None</option>
+                {players.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </div>
-          )}
+          ))}
+          <button type="button" className="btn btn-secondary w-full" onClick={addGoalRow}>
+            Add goal
+          </button>
 
-          {phase === 'setup' && step === 1 && (
-            <div className="card space-y-3">
-              <h3 className="font-bold">Confirm tonight’s squad</h3>
-              <p className="text-sm text-[var(--color-muted)]">
-                Pick an even number between {MIN_SQUAD} and {MAX_SQUAD} (5v5 to 7v7). Player RSVPs show below.
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button type="button" className="btn btn-secondary flex-1" onClick={() => setSelected(players.map((p) => p.id).slice(0, MAX_SQUAD))}>
-                  Select all
-                </button>
+          <div className="border-t border-white/10 pt-3 space-y-2">
+            <h3 className="font-bold">Also played ({alsoPlayed.filter((pid) => !involvedInGoals.has(pid)).length})</h3>
+            <p className="text-sm text-[var(--color-muted)]">
+              Anyone else who played but didn't score or assist — matters for Team
+              of the Week, which always fills to 7 when enough people are marked here.
+            </p>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {alsoPlayedOptions.map((p) => (
                 <button
+                  key={p.id}
                   type="button"
-                  className="btn btn-secondary flex-1"
-                  onClick={() => setSelected(availableIds.slice(0, MAX_SQUAD))}
-                  disabled={!availableIds.length}
+                  className={`player-chip ${alsoPlayed.includes(p.id) ? 'selected' : ''}`}
+                  onClick={() => toggleAlsoPlayed(p.id)}
                 >
-                  Use RSVPs ({availableIds.length})
+                  <PlayerAvatar player={p} size={36} />
+                  <span className="font-semibold flex-1 text-left">{p.name}</span>
                 </button>
-                <button type="button" className="btn btn-secondary flex-1" onClick={() => setSelected([])}>
-                  Clear
-                </button>
-              </div>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {players.map((p) => {
-                  const rsvp = availabilityByPlayer[p.id]
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={`player-chip ${selected.includes(p.id) ? 'selected' : ''}`}
-                      onClick={() => togglePlayer(p.id)}
-                    >
-                      <PlayerAvatar player={p} size={40} />
-                      <span className="font-semibold flex-1 text-left">{p.name}</span>
-                      <span className="text-xs text-[var(--color-muted)]">
-                        {rsvp === 'AVAILABLE' ? 'RSVP in' : rsvp === 'UNAVAILABLE' ? 'RSVP out' : 'No RSVP'}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-              <p className={`text-sm ${isValidSquadCount(selected.length) ? 'text-[var(--color-muted)]' : 'text-[var(--color-danger)]'}`}>
-                {selected.length} selected · need even {MIN_SQUAD}–{MAX_SQUAD}
-                {isValidSquadCount(selected.length) ? ` → ${selected.length / 2}v${selected.length / 2}` : ''}
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary w-full"
-                disabled={busy || !isValidSquadCount(selected.length)}
-                onClick={saveParticipants}
-              >
-                Save squad & continue
-              </button>
-            </div>
-          )}
-
-          {phase === 'setup' && step === 2 && (
-            <div className="space-y-3">
-              <div className="card space-y-3">
-                <h3 className="font-bold">Build teams</h3>
-                <p className="text-sm text-[var(--color-muted)]">
-                  Set teams now, then stop — results are entered after you play.
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => generate('random')}>Random</button>
-                  <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => generate('balanced')}>Balanced</button>
-                  <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => generate('random')}>Regen</button>
-                </div>
-                {ratings && (
-                  <p className="text-sm text-[var(--color-gold)]">
-                    Strength A {ratings.team_a_rating} · B {ratings.team_b_rating}
-                  </p>
-                )}
-              </div>
-
-              <div className="team-board">
-                <div className="team-column">
-                  <p className="font-bold mb-2">Team A · {manualA.length}/{teamCap}</p>
-                  {manualA.map((pid) => {
-                    const p = playerById[pid]
-                    if (!p) return null
-                    return (
-                      <button key={pid} type="button" className="player-chip" onClick={() => clearAssignment(pid)}>
-                        <PlayerAvatar player={p} size={32} />
-                        <span className="text-sm truncate">{p.name.split(' ')[0]}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-                <div className="team-column">
-                  <p className="font-bold mb-2">Team B · {manualB.length}/{teamCap}</p>
-                  {manualB.map((pid) => {
-                    const p = playerById[pid]
-                    if (!p) return null
-                    return (
-                      <button key={pid} type="button" className="player-chip" onClick={() => clearAssignment(pid)}>
-                        <PlayerAvatar player={p} size={32} />
-                        <span className="text-sm truncate">{p.name.split(' ')[0]}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {unassigned.length > 0 && (
-                <div className="card space-y-2">
-                  <p className="font-semibold">Unassigned ({unassigned.length})</p>
-                  {unassigned.map((p) => (
-                    <div key={p.id} className="flex items-center gap-2">
-                      <PlayerAvatar player={p} size={36} />
-                      <span className="flex-1 text-sm font-semibold truncate">{p.name}</span>
-                      <button type="button" className="btn btn-secondary" style={{ minHeight: 36, padding: '0.25rem 0.55rem' }} onClick={() => assignManual(p.id, 'A')}>A</button>
-                      <button type="button" className="btn btn-secondary" style={{ minHeight: 36, padding: '0.25rem 0.55rem' }} onClick={() => assignManual(p.id, 'B')}>B</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="btn btn-primary w-full"
-                disabled={busy || manualA.length !== teamCap || manualB.length !== teamCap}
-                onClick={saveManualTeams}
-              >
-                Lock teams & wait for kickoff
-              </button>
-              {teamsReady && (
-                <button
-                  type="button"
-                  className="btn btn-secondary w-full"
-                  onClick={() => setPhase('ready')}
-                >
-                  Teams already saved — continue
-                </button>
-              )}
-            </div>
-          )}
-
-          {phase === 'results' && step === 3 && (
-            <div className="card space-y-4">
-              <h3 className="font-bold">Final score</h3>
-              <p className="text-sm text-[var(--color-muted)]">Enter this after the game ends.</p>
-              <div className="flex items-center justify-center gap-4">
-                <div className="text-center">
-                  <p className="text-xs text-[var(--color-muted)] mb-1">Team A</p>
-                  <input className="score-input" type="number" min="0" value={scoreA} onChange={(e) => setScoreA(e.target.value)} />
-                </div>
-                <span className="display text-4xl">—</span>
-                <div className="text-center">
-                  <p className="text-xs text-[var(--color-muted)] mb-1">Team B</p>
-                  <input className="score-input" type="number" min="0" value={scoreB} onChange={(e) => setScoreB(e.target.value)} />
-                </div>
-              </div>
-              <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={saveScore}>
-                Save score & enter goals
-              </button>
-            </div>
-          )}
-
-          {phase === 'results' && step === 4 && (
-            <div className="card space-y-3">
-              <h3 className="font-bold">Goals & assists ({goals.length})</h3>
-              <p className="text-sm text-[var(--color-muted)]">One row per goal — scorer + optional assist.</p>
-              {goals.map((g, index) => (
-                <div key={index} className="grid gap-2 border-b border-white/10 pb-3">
-                  <p className="text-xs text-[var(--color-muted)]">Goal {index + 1}</p>
-                  <select
-                    value={g.scoring_team}
-                    onChange={(e) => {
-                      const next = [...goals]
-                      next[index] = { ...next[index], scoring_team: e.target.value, scorer_id: '' }
-                      setGoals(next)
-                    }}
-                  >
-                    <option value="A">Team A</option>
-                    <option value="B">Team B</option>
-                  </select>
-                  <select
-                    value={g.scorer_id}
-                    onChange={(e) => {
-                      const next = [...goals]
-                      next[index] = { ...next[index], scorer_id: e.target.value }
-                      setGoals(next)
-                    }}
-                  >
-                    <option value="">Scorer</option>
-                    {scorersFor(g.scoring_team).map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={g.assister_id ?? ''}
-                    onChange={(e) => {
-                      const next = [...goals]
-                      next[index] = {
-                        ...next[index],
-                        assister_id: e.target.value ? e.target.value : null,
-                      }
-                      setGoals(next)
-                    }}
-                  >
-                    <option value="">Assist — None</option>
-                    {participantPlayers.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
               ))}
-              <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={saveGoals}>
-                Save goals
-              </button>
+              {alsoPlayedOptions.length === 0 && (
+                <p className="text-sm text-[var(--color-muted)]">
+                  Everyone registered is already a scorer or assister above.
+                </p>
+              )}
             </div>
-          )}
+          </div>
 
-          {phase === 'results' && step === 5 && (
-            <div className="card space-y-3">
-              <h3 className="font-bold">Finalize</h3>
-              <p className="display text-5xl text-center text-[var(--color-lime)]">
-                {match.team_a_score} — {match.team_b_score}
-              </p>
-              <p className="text-sm text-center text-[var(--color-muted)]">
-                {match.goals.length} goals recorded. Finalizing will update career stats and
-                automatically select Player of the Match, Player of the Week, and Team of the
-                Week from tonight's performance.
-              </p>
-              <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={finalize}>
-                Finalize match
-              </button>
-            </div>
-          )}
-        </>
+          <button type="button" className="btn btn-secondary w-full" disabled={busy} onClick={saveGoals}>
+            Save goals
+          </button>
+          <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={finalize}>
+            Finalize matchday
+          </button>
+        </div>
       )}
     </div>
   )

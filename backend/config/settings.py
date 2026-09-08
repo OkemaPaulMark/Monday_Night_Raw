@@ -173,26 +173,15 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
-# Single source of truth for performance scoring (Phase 2 services will use this).
+# Single source of truth for performance scoring. Goals + assists only —
+# teams are formed on the pitch each week and never tracked in the app, so
+# there's no score/team-side to derive clean sheets or wins/draws from.
 PERFORMANCE_SCORE_WEIGHTS = {
     'GOAL_WEIGHT': int(os.getenv('GOAL_WEIGHT', '5')),
     'ASSIST_WEIGHT': int(os.getenv('ASSIST_WEIGHT', '4')),
-    'CLEAN_SHEET_WEIGHT': int(os.getenv('CLEAN_SHEET_WEIGHT', '3')),
-    'WIN_WEIGHT': int(os.getenv('WIN_WEIGHT', '2')),
-    # Career weight per past Player of the Week award, used only to seed
-    # balanced team generation — not part of per-match performance scoring.
-    'POTW_WEIGHT': int(os.getenv('POTW_WEIGHT', '8')),
-    'DRAW_WEIGHT': int(os.getenv('DRAW_WEIGHT', '1')),
     # Raw performance points that map to a 5.0 star rating (lower = more generous)
     'RATING_POINTS_FOR_FIVE': int(os.getenv('RATING_POINTS_FOR_FIVE', '12')),
 }
-
-# Match rules — flexible Monday squads (even counts for equal teams)
-MIN_MATCH_PLAYERS = int(os.getenv('MIN_MATCH_PLAYERS', '10'))
-MAX_MATCH_PLAYERS = int(os.getenv('MAX_MATCH_PLAYERS', '14'))
-# Legacy aliases (max / full squad)
-PLAYERS_PER_TEAM = MAX_MATCH_PLAYERS // 2
-EXPECTED_TOTAL_PLAYERS = MAX_MATCH_PLAYERS
 
 # Seed credentials (dev only)
 SEED_ADMIN_USERNAME = os.getenv('SEED_ADMIN_USERNAME', 'admin')

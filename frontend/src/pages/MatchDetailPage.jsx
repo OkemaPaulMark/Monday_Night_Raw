@@ -24,16 +24,16 @@ export default function MatchDetailPage() {
   if (error) return <ErrorBanner message={error} />
   if (!match) return null
 
-  const teamA = match.teams.find((t) => t.side === 'A')
-  const teamB = match.teams.find((t) => t.side === 'B')
-
   return (
     <div className="space-y-4">
       <SectionTitle>{match.match_date}</SectionTitle>
       <div className="card text-center">
         <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">{match.status}</p>
         <p className="display text-6xl text-[var(--color-lime)] mt-2">
-          {match.team_a_score != null ? `${match.team_a_score} — ${match.team_b_score}` : 'TBD'}
+          {match.is_finalized ? match.goals.length : 'TBD'}
+        </p>
+        <p className="text-xs text-[var(--color-muted)] mt-1">
+          {match.is_finalized ? 'goals' : 'not finalized yet'} · {match.squad_size} on the scoresheet
         </p>
         {(match.potw || []).length > 0 && (
           <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
@@ -53,25 +53,21 @@ export default function MatchDetailPage() {
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {[['Team A', teamA], ['Team B', teamB]].map(([label, team]) => (
-          <div key={label} className="card">
-            <h3 className="font-bold mb-2">{label}</h3>
-            <div className="space-y-2">
-              {(team?.roster || []).map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  className="player-chip"
-                  onClick={() => setSelectedPlayerId(r.player.id)}
-                >
-                  <PlayerAvatar player={r.player} size={36} />
-                  <span className="text-sm font-semibold">{r.player.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+      <div className="card">
+        <h3 className="font-bold mb-2">On the scoresheet ({match.participants.length})</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {match.participants.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              className="player-chip"
+              onClick={() => setSelectedPlayerId(row.player.id)}
+            >
+              <PlayerAvatar player={row.player} size={32} />
+              <span className="text-sm font-semibold truncate">{row.player.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card">
@@ -85,7 +81,6 @@ export default function MatchDetailPage() {
               <span>
                 {g.order}. {g.scorer.name}
                 {g.assister ? ` (A: ${g.assister.name})` : ''}
-                <span className="text-[var(--color-muted)]"> · Team {g.scoring_team_side}</span>
               </span>
             </li>
           ))}

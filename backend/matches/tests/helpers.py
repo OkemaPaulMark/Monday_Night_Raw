@@ -27,34 +27,34 @@ def create_player_user(username, password='pass12345'):
     )
 
 
+def create_players(count=14):
+    return [Player.objects.create(name=f'Test Player {i+1:02d}') for i in range(count)]
+
+
 def create_fourteen_players():
-    players = []
-    for i in range(14):
-        players.append(Player.objects.create(name=f'Test Player {i+1:02d}'))
-    return players
+    return create_players(14)
 
 
-def build_ready_match(players=None, match_date=None):
+def create_match_with_players(players=None, match_date=None):
+    """
+    Create a match and a pool of registered players to test goal/assist
+    entry against. There's no separate "who's playing" step — participants
+    are derived from whoever ends up as a scorer/assister in replace_goals.
+    """
     players = players or create_fourteen_players()
     match = Match.objects.create(match_date=match_date or date(2026, 9, 7))
-    match_service.set_participants(match, [p.id for p in players])
-    match_service.assign_teams(
-        match,
-        [p.id for p in players[:7]],
-        [p.id for p in players[7:]],
-    )
     return match, players
 
 
-def complete_match_4_2(match, players):
-    match_service.set_score(match, 4, 2)
+def complete_match_with_goals(match, players):
+    """Finalize a match with a fixed, deterministic set of goals/assists."""
     goals = [
-        {'scoring_team': 'A', 'scorer_id': players[0].id, 'assister_id': players[1].id},
-        {'scoring_team': 'A', 'scorer_id': players[2].id, 'assister_id': None},
-        {'scoring_team': 'A', 'scorer_id': players[0].id, 'assister_id': players[3].id},
-        {'scoring_team': 'A', 'scorer_id': players[4].id, 'assister_id': players[0].id},
-        {'scoring_team': 'B', 'scorer_id': players[7].id, 'assister_id': players[8].id},
-        {'scoring_team': 'B', 'scorer_id': players[9].id, 'assister_id': None},
+        {'scorer_id': players[0].id, 'assister_id': players[1].id},
+        {'scorer_id': players[2].id, 'assister_id': None},
+        {'scorer_id': players[0].id, 'assister_id': players[3].id},
+        {'scorer_id': players[4].id, 'assister_id': players[0].id},
+        {'scorer_id': players[7].id, 'assister_id': players[8].id},
+        {'scorer_id': players[9].id, 'assister_id': None},
     ]
     match_service.replace_goals(match, goals)
     match_service.finalize_match(match)

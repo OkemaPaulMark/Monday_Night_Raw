@@ -94,3 +94,57 @@ class RegisterSerializer(serializers.Serializer):
         )
         token = Token.objects.create(user=user)
         return {'token': token.key, 'user': user, 'player': player}
+
+
+class MeUpdateSerializer(serializers.Serializer):
+    """Self-service profile edit: username/email live on User, name/email are
+    mirrored onto the linked Player (if any) so both stay in sync."""
+
+    username = serializers.CharField(max_length=150, required=False)
+    email = serializers.EmailField(required=False)
+    name = serializers.CharField(max_length=120, required=False)
+
+    def validate_username(self, value):
+        user = self.context['user']
+        if User.objects.filter(username__iexact=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError('That username is already taken.')
+        return value
+
+    def validate_name(self, value):
+        user = self.context['user']
+        player = getattr(user, 'player_profile', None)
+        qs = Player.objects.filter(name__iexact=value)
+        if player is not None:
+            qs = qs.exclude(pk=player.pk)
+        if qs.exists():
+            raise serializers.ValidationError('A player with this name is already registered.')
+        return value
+
+    @transaction.atomic
+    def save(self):
+        user = self.context['user']
+        data = self.validated_data
+
+        if 'username' in data:
+            user.username = data['username']
+        if 'email' in data:
+            user.email = data['email']
+        if 'name' in data:
+            parts = data['name'].split()
+            user.first_name = parts[0] if parts else ''
+            user.last_name = ' '.join(parts[1:])
+        user.save()
+
+        player = getattr(user, 'player_profile', None)
+        if player is not None:
+            update_fields = []
+            if 'name' in data:
+                player.name = data['name']
+                update_fields.append('name')
+            if 'email' in data:
+                player.email = data['email']
+                update_fields.append('email')
+            if update_fields:
+                player.save(update_fields=[*update_fields, 'updated_at'])
+
+        return user

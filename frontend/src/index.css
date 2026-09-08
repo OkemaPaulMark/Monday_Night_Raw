@@ -156,6 +156,15 @@ a {
   border: 1px solid rgba(255, 107, 107, 0.35);
 }
 
+.icon-btn {
+  min-height: 36px;
+  min-width: 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 0.65rem;
+}
+
 .field {
   display: flex;
   flex-direction: column;
