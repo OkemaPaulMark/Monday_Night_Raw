@@ -173,12 +173,17 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
-# Single source of truth for performance scoring. Goals + assists only —
-# teams are formed on the pitch each week and never tracked in the app, so
-# there's no score/team-side to derive clean sheets or wins/draws from.
+# Single source of truth for performance scoring. Goals + assists count the
+# same for every position. Clean-sheet/goals-conceded terms only apply to
+# Defenders/Midfielders, and only on matchdays where admin entered team side
+# + score (optional — dynamic turnout means most days won't have them).
 PERFORMANCE_SCORE_WEIGHTS = {
     'GOAL_WEIGHT': int(os.getenv('GOAL_WEIGHT', '5')),
     'ASSIST_WEIGHT': int(os.getenv('ASSIST_WEIGHT', '4')),
+    'CLEAN_SHEET_DEFENDER_WEIGHT': int(os.getenv('CLEAN_SHEET_DEFENDER_WEIGHT', '6')),
+    'CLEAN_SHEET_MIDFIELDER_WEIGHT': int(os.getenv('CLEAN_SHEET_MIDFIELDER_WEIGHT', '3')),
+    'CONCEDED_PENALTY_DEFENDER': int(os.getenv('CONCEDED_PENALTY_DEFENDER', '2')),
+    'CONCEDED_PENALTY_MIDFIELDER': int(os.getenv('CONCEDED_PENALTY_MIDFIELDER', '1')),
     # Raw performance points that map to a 5.0 star rating (lower = more generous)
     'RATING_POINTS_FOR_FIVE': int(os.getenv('RATING_POINTS_FOR_FIVE', '12')),
 }

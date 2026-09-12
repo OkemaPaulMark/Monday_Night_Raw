@@ -236,6 +236,11 @@ export function MatchWizardPage() {
   const [players, setPlayers] = useState([])
   const [goals, setGoals] = useState([])
   const [alsoPlayed, setAlsoPlayed] = useState([])
+  const [trackTeams, setTrackTeams] = useState(false)
+  const [teamA, setTeamA] = useState([])
+  const [teamB, setTeamB] = useState([])
+  const [teamAScore, setTeamAScore] = useState('')
+  const [teamBScore, setTeamBScore] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -258,6 +263,13 @@ export function MatchWizardPage() {
     setAlsoPlayed(
       m.participants.map((row) => row.player.id).filter((pid) => !involved.has(pid)),
     )
+    const sideA = m.participants.filter((row) => row.side === 'A').map((row) => row.player.id)
+    const sideB = m.participants.filter((row) => row.side === 'B').map((row) => row.player.id)
+    setTeamA(sideA)
+    setTeamB(sideB)
+    setTeamAScore(m.team_a_score ?? '')
+    setTeamBScore(m.team_b_score ?? '')
+    setTrackTeams(m.has_team_scores || sideA.length > 0 || sideB.length > 0)
   }
 
   useEffect(() => {
@@ -278,6 +290,21 @@ export function MatchWizardPage() {
     )
   }
 
+  function assignTeam(playerId, side) {
+    setTeamA((prev) => {
+      if (side === 'A') {
+        return prev.includes(playerId) ? prev.filter((x) => x !== playerId) : [...prev, playerId]
+      }
+      return prev.filter((x) => x !== playerId)
+    })
+    setTeamB((prev) => {
+      if (side === 'B') {
+        return prev.includes(playerId) ? prev.filter((x) => x !== playerId) : [...prev, playerId]
+      }
+      return prev.filter((x) => x !== playerId)
+    })
+  }
+
   const involvedInGoals = new Set(
     goals.flatMap((g) => [g.scorer_id, g.assister_id].filter(Boolean).map(Number)),
   )
@@ -295,7 +322,14 @@ export function MatchWizardPage() {
           order: index + 1,
         }))
       const alsoPlayedIds = alsoPlayed.filter((pid) => !involvedInGoals.has(pid))
-      const m = await matchesApi.setGoals(id, payload, alsoPlayedIds)
+      const m = await matchesApi.setGoals(id, {
+        goals: payload,
+        alsoPlayed: alsoPlayedIds,
+        teamA: trackTeams ? teamA : [],
+        teamB: trackTeams ? teamB : [],
+        teamAScore: trackTeams && teamAScore !== '' ? Number(teamAScore) : null,
+        teamBScore: trackTeams && teamBScore !== '' ? Number(teamBScore) : null,
+      })
       setMatch(m)
     } catch (e) {
       setError(e.message)
@@ -430,6 +464,79 @@ export function MatchWizardPage() {
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="border-t border-white/10 pt-3 space-y-2">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={trackTeams}
+                onChange={(e) => setTrackTeams(e.target.checked)}
+              />
+              <span className="font-bold">Track teams & score</span>
+            </label>
+            <p className="text-sm text-[var(--color-muted)]">
+              Optional — only if turnout split cleanly into two sides. Enables
+              clean sheet / goals conceded stats for defenders and midfielders.
+            </p>
+            {trackTeams && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="field">
+                    <label htmlFor="team-a-score">Team A score</label>
+                    <input
+                      id="team-a-score"
+                      type="number"
+                      min="0"
+                      value={teamAScore}
+                      onChange={(e) => setTeamAScore(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="team-b-score">Team B score</label>
+                    <input
+                      id="team-b-score"
+                      type="number"
+                      min="0"
+                      value={teamBScore}
+                      onChange={(e) => setTeamBScore(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--color-muted)]">
+                  Tap a player to cycle: unassigned → Team A → Team B.
+                </p>
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {players.map((p) => {
+                    const side = teamA.includes(p.id) ? 'A' : teamB.includes(p.id) ? 'B' : null
+                    return (
+                      <div key={p.id} className="player-chip" style={{ marginBottom: 0 }}>
+                        <PlayerAvatar player={p} size={36} />
+                        <span className="font-semibold flex-1 text-left truncate">{p.name}</span>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            type="button"
+                            className={`btn ${side === 'A' ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ minHeight: 32, padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+                            onClick={() => assignTeam(p.id, side === 'A' ? null : 'A')}
+                          >
+                            A
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn ${side === 'B' ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ minHeight: 32, padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+                            onClick={() => assignTeam(p.id, side === 'B' ? null : 'B')}
+                          >
+                            B
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           <button type="button" className="btn btn-secondary w-full" disabled={busy} onClick={saveGoals}>

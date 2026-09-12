@@ -11,7 +11,7 @@ from matches.tests.helpers import (
     create_players,
 )
 from players.models import Player
-from stats.services.statistics_calculator import calculate_player_stats
+from stats.services.statistics_calculator import calculate_player_stats, match_player_performance
 
 
 class PlayerModelTests(TestCase):
@@ -146,3 +146,126 @@ class FinalizeTests(TestCase):
         match.refresh_from_db()
         self.assertFalse(match.is_finalized)
         self.assertEqual(match.status, Match.Status.READY)
+
+
+class TeamScoreTests(TestCase):
+    """Team side + score are optional, entered independently of goals."""
+
+    def test_overlapping_team_assignment_rejected(self):
+        players = create_players(4)
+        match = Match.objects.create(match_date=date(2026, 11, 9))
+        with self.assertRaises(ValidationError):
+            match_service.replace_goals(
+                match,
+                [],
+                team_a_ids=[players[0].id, players[1].id],
+                team_b_ids=[players[1].id, players[2].id],
+                team_a_score=1,
+                team_b_score=0,
+            )
+
+    def test_team_assignment_sets_side_score_and_participants(self):
+        players = create_players(4)
+        match = Match.objects.create(match_date=date(2026, 11, 16))
+        match_service.replace_goals(
+            match,
+            [],
+            team_a_ids=[players[0].id, players[1].id],
+            team_b_ids=[players[2].id, players[3].id],
+            team_a_score=3,
+            team_b_score=0,
+        )
+        match.refresh_from_db()
+        self.assertEqual(match.team_a_score, 3)
+        self.assertEqual(match.team_b_score, 0)
+        self.assertTrue(match.has_team_scores)
+        self.assertEqual(match.participants.count(), 4)
+        self.assertEqual(match.participants.get(player=players[0]).side, 'A')
+        self.assertEqual(match.participants.get(player=players[2]).side, 'B')
+
+    def test_no_team_data_leaves_scores_null(self):
+        players = create_players(2)
+        match = Match.objects.create(match_date=date(2026, 11, 23))
+        match_service.replace_goals(match, _goals_for(players))
+        match.refresh_from_db()
+        self.assertIsNone(match.team_a_score)
+        self.assertFalse(match.has_team_scores)
+        self.assertIsNone(match.participants.first().side)
+
+
+class PositionScoringTests(TestCase):
+    """
+    Clean sheets/goals conceded only apply to Defenders/Midfielders, and
+    only when team side + score were entered. Goals/assists count the same
+    for every position, which is what makes a scoring defender with a
+    clean sheet outrank a clean-sheet defender with only an assist.
+    """
+
+    def test_clean_sheet_defender_beats_conceding_defender(self):
+        defender_a = Player.objects.create(name='Defender A', position=Player.Position.DEFENDER)
+        defender_b = Player.objects.create(name='Defender B', position=Player.Position.DEFENDER)
+        match = Match.objects.create(match_date=date(2026, 11, 30))
+        match_service.replace_goals(
+            match,
+            [],
+            team_a_ids=[defender_a.id],
+            team_b_ids=[defender_b.id],
+            team_a_score=2,
+            team_b_score=0,
+        )
+        match.refresh_from_db()
+        score_a = match_player_performance(match, defender_a)
+        score_b = match_player_performance(match, defender_b)
+        self.assertGreater(score_a, 0)  # clean sheet bonus, no goals
+        self.assertLess(score_b, 0)  # conceded penalty, no goals
+        self.assertGreater(score_a, score_b)
+
+    def test_scoring_defender_with_clean_sheet_beats_assist_only_defender(self):
+        d1 = Player.objects.create(name='D One', position=Player.Position.DEFENDER)
+        d2 = Player.objects.create(name='D Two', position=Player.Position.DEFENDER)
+        striker = Player.objects.create(name='Lone Striker', position=Player.Position.STRIKER)
+        match = Match.objects.create(match_date=date(2026, 12, 7))
+        match_service.replace_goals(
+            match,
+            [
+                {'scorer_id': d1.id, 'assister_id': None},
+                {'scorer_id': striker.id, 'assister_id': d2.id},
+            ],
+            team_a_ids=[d1.id, d2.id],
+            team_b_ids=[striker.id],
+            team_a_score=1,
+            team_b_score=0,
+        )
+        match.refresh_from_db()
+        score_d1 = match_player_performance(match, d1)  # goal + clean sheet
+        score_d2 = match_player_performance(match, d2)  # assist + clean sheet
+        self.assertGreater(score_d1, score_d2)
+
+    def test_strikers_unaffected_by_clean_sheet_or_conceded(self):
+        striker = Player.objects.create(name='Test Striker', position=Player.Position.STRIKER)
+        match = Match.objects.create(match_date=date(2026, 12, 14))
+        match_service.replace_goals(
+            match,
+            [{'scorer_id': striker.id, 'assister_id': None}],
+            team_a_ids=[striker.id],
+            team_a_score=1,
+            team_b_score=5,
+        )
+        match.refresh_from_db()
+        from stats.scoring import get_weights
+        score = match_player_performance(match, striker)
+        self.assertEqual(score, get_weights().goal)
+
+    def test_no_bonus_without_position_set(self):
+        no_position = Player.objects.create(name='No Position Player')
+        match = Match.objects.create(match_date=date(2026, 12, 21))
+        match_service.replace_goals(
+            match,
+            [],
+            team_a_ids=[no_position.id],
+            team_a_score=1,
+            team_b_score=0,
+        )
+        match.refresh_from_db()
+        score = match_player_performance(match, no_position)
+        self.assertEqual(score, 0)

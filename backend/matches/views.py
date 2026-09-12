@@ -106,10 +106,15 @@ class MatchViewSet(viewsets.ModelViewSet):
         match = self.get_object()
         serializer = GoalsReplaceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         match_service.replace_goals(
             match,
-            serializer.validated_data['goals'],
-            serializer.validated_data.get('also_played'),
+            data['goals'],
+            also_played_ids=data.get('also_played'),
+            team_a_ids=data.get('team_a'),
+            team_b_ids=data.get('team_b'),
+            team_a_score=data.get('team_a_score'),
+            team_b_score=data.get('team_b_score'),
         )
         return Response(MatchSerializer(self.get_queryset().get(pk=match.pk)).data)
 

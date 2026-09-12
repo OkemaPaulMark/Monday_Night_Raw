@@ -5,15 +5,16 @@ import { ErrorBanner, LoadingState, SectionTitle } from '../components/ui'
 import PlayerAvatar from '../components/PlayerAvatar'
 
 const SORTS = [
+  { value: '-goal_contributions', label: 'G+A' },
   { value: '-matches_played', label: 'Matches played' },
   { value: '-goals', label: 'Goals' },
   { value: '-assists', label: 'Assists' },
-  { value: '-goal_contributions', label: 'G+A' },
+  { value: '-clean_sheets', label: 'Clean sheets' },
   { value: '-potw', label: 'POTW' },
 ]
 
 export default function LeaderboardPage() {
-  const [ordering, setOrdering] = useState('-goals')
+  const [ordering, setOrdering] = useState('-goal_contributions')
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -52,6 +53,7 @@ export default function LeaderboardPage() {
                 <th>MP</th>
                 <th>G</th>
                 <th>A</th>
+                <th>CS</th>
                 <th>POTW</th>
               </tr>
             </thead>
@@ -74,6 +76,7 @@ export default function LeaderboardPage() {
                   <td>{row.matches_played}</td>
                   <td>{row.goals}</td>
                   <td>{row.assists}</td>
+                  <td>{row.clean_sheets}</td>
                   <td>{row.potw}</td>
                 </tr>
               ))}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ErrorBanner } from '../components/ui'
+import { POSITIONS } from '../constants'
 
 export default function RegisterPage() {
   const { register, user, loading } = useAuth()
@@ -10,6 +11,7 @@ export default function RegisterPage() {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [position, setPosition] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -22,7 +24,7 @@ export default function RegisterPage() {
     setError('')
     setSubmitting(true)
     try {
-      await register({ name, username, email, password })
+      await register({ name, username, email, password, position })
       navigate('/', { replace: true })
     } catch (err) {
       setError(err.message || 'Registration failed')
@@ -83,6 +85,15 @@ export default function RegisterPage() {
               autoComplete="new-password"
               required
             />
+          </div>
+          <div className="field">
+            <label htmlFor="position">Position</label>
+            <select id="position" value={position} onChange={(e) => setPosition(e.target.value)} required>
+              <option value="" disabled>Select your position</option>
+              {POSITIONS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
           </div>
           <button className="btn btn-primary w-full" type="submit" disabled={submitting}>
             {submitting ? 'Creating account…' : 'Create account'}

@@ -4,6 +4,11 @@ import { playersApi } from '../services/endpoints'
 import { useAuth } from '../context/AuthContext'
 import { ErrorBanner, LoadingState, SectionTitle, StatTile } from '../components/ui'
 import PlayerAvatar from '../components/PlayerAvatar'
+import { POSITIONS } from '../constants'
+
+function positionLabel(value) {
+  return POSITIONS.find((p) => p.value === value)?.label || null
+}
 
 export default function ProfilePage({ self = false }) {
   const { id } = useParams()
@@ -21,6 +26,7 @@ export default function ProfilePage({ self = false }) {
   const [editName, setEditName] = useState('')
   const [editUsername, setEditUsername] = useState('')
   const [editEmail, setEditEmail] = useState('')
+  const [editPosition, setEditPosition] = useState('')
   const [editError, setEditError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -61,6 +67,7 @@ export default function ProfilePage({ self = false }) {
     setEditName(player?.name || '')
     setEditUsername(user?.username || '')
     setEditEmail(player?.email || user?.email || '')
+    setEditPosition(player?.position || '')
     setEditing(true)
   }
 
@@ -69,7 +76,9 @@ export default function ProfilePage({ self = false }) {
     setSaving(true)
     setEditError('')
     try {
-      await updateProfile({ name: editName, username: editUsername, email: editEmail })
+      const payload = { name: editName, username: editUsername, email: editEmail }
+      if (editPosition) payload.position = editPosition
+      await updateProfile(payload)
       await load()
       if (self) refreshAvatarPlayer()
       setEditing(false)
@@ -107,6 +116,11 @@ export default function ProfilePage({ self = false }) {
         <PlayerAvatar player={player || { name: stats?.name }} size={84} />
         <div className="min-w-0 flex-1">
           <SectionTitle>{stats?.name || player?.name}</SectionTitle>
+          {player && (
+            <p className="text-xs text-[var(--color-muted)]">
+              {positionLabel(player.position) || (self ? 'No position set yet' : 'No position set')}
+            </p>
+          )}
           {canUpload && !self && (
             <div className="mt-2">
               <input
@@ -168,6 +182,15 @@ export default function ProfilePage({ self = false }) {
           <div className="field">
             <label htmlFor="edit-username">Username</label>
             <input id="edit-username" value={editUsername} onChange={(e) => setEditUsername(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label htmlFor="edit-position">Position</label>
+            <select id="edit-position" value={editPosition} onChange={(e) => setEditPosition(e.target.value)}>
+              <option value="">Not set</option>
+              {POSITIONS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
           </div>
           <div className="field">
             <label htmlFor="edit-email">Email</label>

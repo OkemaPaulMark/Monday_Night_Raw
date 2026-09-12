@@ -6,6 +6,11 @@ played" alongside the goals — both come from the same page, from the full
 registered player list. The "also played" list matters for Team of the
 Week: without it, a low-scoring day (e.g. 1-0, one scorer) would only have
 1-2 people to rank at all, instead of filling out to a normal team size.
+
+Team side (A/B) + final score are a further OPTIONAL layer on the same
+page/call: entered only when admin wants clean-sheet/goals-conceded scoring
+for Defenders/Midfielders that day. Most days (especially 3-team turnouts)
+will just skip this — everyone still scores on goals/assists alone.
 """
 
 from __future__ import annotations
@@ -30,12 +35,21 @@ def replace_goals(
     match: Match,
     goals_payload: list[dict],
     also_played_ids: list[int] | None = None,
+    team_a_ids: list[int] | None = None,
+    team_b_ids: list[int] | None = None,
+    team_a_score: int | None = None,
+    team_b_score: int | None = None,
 ) -> Match:
     """
     Replace all goal events for a match, and (re)derive participants as the
-    set of players who scored, assisted, or were marked "also played".
+    set of players who scored, assisted, were marked "also played", or were
+    assigned a team side.
 
     Each goal item: {scorer_id: int, assister_id: int|null, order?: int}
+
+    Team assignment + score are optional and independent of the goals list
+    (not reconciled against it) — whatever's passed here fully replaces the
+    match's team/score state, same as goals and also_played.
     """
     ensure_editable(match)
 
@@ -80,17 +94,38 @@ def replace_goals(
             raise ValidationError({'detail': f'Player {pid} is not a valid active player.'})
         participant_ids.add(pid)
 
+    team_a_ids = team_a_ids or []
+    team_b_ids = team_b_ids or []
+    overlap = set(team_a_ids) & set(team_b_ids)
+    if overlap:
+        raise ValidationError({'detail': f'Players {sorted(overlap)} assigned to both teams.'})
+    for pid in [*team_a_ids, *team_b_ids]:
+        if pid not in active_player_ids:
+            raise ValidationError({'detail': f'Player {pid} is not a valid active player.'})
+        participant_ids.add(pid)
+
+    sides: dict[int, str] = {}
+    for pid in team_a_ids:
+        sides[pid] = MatchParticipant.Side.A
+    for pid in team_b_ids:
+        sides[pid] = MatchParticipant.Side.B
+
     match.goals.all().delete()
     GoalEvent.objects.bulk_create(events)
 
     match.participants.all().delete()
     MatchParticipant.objects.bulk_create([
-        MatchParticipant(match=match, player_id=pid) for pid in participant_ids
+        MatchParticipant(match=match, player_id=pid, side=sides.get(pid))
+        for pid in participant_ids
     ])
 
+    match.team_a_score = team_a_score
+    match.team_b_score = team_b_score
+    update_fields = ['team_a_score', 'team_b_score', 'updated_at']
     if match.status == Match.Status.DRAFT and participant_ids:
         match.status = Match.Status.READY
-        match.save(update_fields=['status', 'updated_at'])
+        update_fields.append('status')
+    match.save(update_fields=update_fields)
     return match
 
 

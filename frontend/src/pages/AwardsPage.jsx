@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { awardsApi } from '../services/endpoints'
+import { awardsApi, matchesApi } from '../services/endpoints'
 import { useAuth } from '../context/AuthContext'
 import { ErrorBanner, LoadingState, SectionTitle, EmptyState } from '../components/ui'
 import TeamOfTheWeekFormation from '../components/TeamOfTheWeekFormation'
 import PlayerStatsModal from '../components/PlayerStatsModal'
 import PlayerAvatar from '../components/PlayerAvatar'
+import { POSITIONS } from '../constants'
+
+function positionLabel(value) {
+  return POSITIONS.find((p) => p.value === value)?.label || 'No position'
+}
 
 function groupWeeklyByMatch(weekly) {
   const map = new Map()
@@ -52,6 +57,11 @@ export default function AwardsPage() {
   const [loading, setLoading] = useState(true)
   const [selectedPlayerId, setSelectedPlayerId] = useState(null)
   const [selectedMatchId, setSelectedMatchId] = useState('')
+  const [editingTotw, setEditingTotw] = useState(false)
+  const [matchParticipants, setMatchParticipants] = useState([])
+  const [manualIds, setManualIds] = useState([])
+  const [totwError, setTotwError] = useState('')
+  const [totwSaving, setTotwSaving] = useState(false)
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -108,6 +118,43 @@ export default function AwardsPage() {
   )
   const potw = selectedGroup?.awards.find((a) => a.award_type === 'POTW')
   const totw = selectedGroup?.awards.find((a) => a.award_type === 'TOTW')
+
+  useEffect(() => {
+    setEditingTotw(false)
+    setTotwError('')
+  }, [selectedMatchId])
+
+  async function startEditTotw() {
+    setTotwError('')
+    setManualIds((totw?.recipients || []).map((r) => r.player.id))
+    setEditingTotw(true)
+    try {
+      const m = await matchesApi.get(selectedGroup.matchId)
+      setMatchParticipants(m.participants.map((row) => row.player))
+    } catch (e) {
+      setTotwError(e.message)
+    }
+  }
+
+  function toggleManualPlayer(playerId) {
+    setManualIds((prev) =>
+      prev.includes(playerId) ? prev.filter((x) => x !== playerId) : [...prev, playerId],
+    )
+  }
+
+  async function saveManualTotw() {
+    setTotwSaving(true)
+    setTotwError('')
+    try {
+      await awardsApi.setTotwRecipients(totw.id, manualIds)
+      await load()
+      setEditingTotw(false)
+    } catch (e) {
+      setTotwError(e.message)
+    } finally {
+      setTotwSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -195,12 +242,61 @@ export default function AwardsPage() {
               <div className="card space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-bold">Team of the Week</h3>
-                  <span className="badge">{totw.recipients.length}-a-side XI</span>
+                  <div className="flex items-center gap-2">
+                    <span className="badge">{totw.recipients.length}-a-side XI</span>
+                    {isAdmin && !editingTotw && (
+                      <button type="button" className="btn btn-secondary" style={{ minHeight: 32, padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={startEditTotw}>
+                        Edit lineup
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <TeamOfTheWeekFormation
-                  recipients={totw.recipients}
-                  onSelectPlayer={(player) => setSelectedPlayerId(player.id)}
-                />
+
+                {editingTotw ? (
+                  <div className="space-y-3">
+                    <ErrorBanner message={totwError} />
+                    <p className="text-sm text-[var(--color-muted)]">
+                      Pick who's in the Team of the Week for this match day. Tap in
+                      the order you want them ranked.
+                    </p>
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {matchParticipants.map((p) => {
+                        const idx = manualIds.indexOf(p.id)
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className={`player-chip ${idx >= 0 ? 'selected' : ''}`}
+                            onClick={() => toggleManualPlayer(p.id)}
+                          >
+                            <PlayerAvatar player={p} size={36} />
+                            <div className="min-w-0 flex-1 text-left">
+                              <p className="font-semibold truncate">{p.name}</p>
+                              <p className="text-xs text-[var(--color-muted)]">{positionLabel(p.position)}</p>
+                            </div>
+                            {idx >= 0 && <span className="badge">#{idx + 1}</span>}
+                          </button>
+                        )
+                      })}
+                      {matchParticipants.length === 0 && (
+                        <p className="text-sm text-[var(--color-muted)]">No participants recorded for this match.</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" className="btn btn-secondary w-full" onClick={() => setEditingTotw(false)} disabled={totwSaving}>
+                        Cancel
+                      </button>
+                      <button type="button" className="btn btn-primary w-full" onClick={saveManualTotw} disabled={totwSaving}>
+                        {totwSaving ? 'Saving…' : 'Save lineup'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <TeamOfTheWeekFormation
+                    recipients={totw.recipients}
+                    onSelectPlayer={(player) => setSelectedPlayerId(player.id)}
+                  />
+                )}
               </div>
             ) : (
               <EmptyState>No Team of the Week for this match day.</EmptyState>

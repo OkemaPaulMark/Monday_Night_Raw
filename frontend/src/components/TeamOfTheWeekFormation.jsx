@@ -1,8 +1,7 @@
 import PlayerAvatar from './PlayerAvatar'
 
-/** Formation rows by squad size (TOTW size = team size: 5 / 6 / 7). */
-function splitFormation(recipients) {
-  const ordered = [...recipients].sort((a, b) => (a.rank || 99) - (b.rank || 99))
+/** Legacy fallback for recipients with no position on record — guess from rank order. */
+function splitFormationByOrder(ordered) {
   const n = ordered.length
   if (n <= 5) {
     return {
@@ -23,6 +22,35 @@ function splitFormation(recipients) {
     mid: ordered.slice(2, 5),
     defense: ordered.slice(5, 7),
   }
+}
+
+/** Formation rows by real position: 2 strikers (attack) / 3 midfielders / 2 defenders. */
+function splitFormation(recipients) {
+  const ordered = [...recipients].sort((a, b) => (a.rank || 99) - (b.rank || 99))
+  const attack = []
+  const mid = []
+  const defense = []
+  const unassigned = []
+  for (const r of ordered) {
+    switch (r.player?.position) {
+      case 'STRIKER':
+        attack.push(r)
+        break
+      case 'MIDFIELDER':
+        mid.push(r)
+        break
+      case 'DEFENDER':
+        defense.push(r)
+        break
+      default:
+        unassigned.push(r)
+    }
+  }
+  if (attack.length === 0 && mid.length === 0 && defense.length === 0 && unassigned.length > 0) {
+    return splitFormationByOrder(unassigned)
+  }
+  mid.push(...unassigned)
+  return { attack, mid, defense }
 }
 
 function FormationRow({ players, onSelect }) {

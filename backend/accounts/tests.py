@@ -16,11 +16,22 @@ class SelfRegisterTests(TestCase):
             'email': 'newplayer@example.com',
             'name': 'New Player',
             'password': 'SuperSecret123!',
+            'position': 'STRIKER',
         }, format='json')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertIn('token', res.data)
         self.assertEqual(res.data['user']['username'], 'newplayer')
-        self.assertTrue(Player.objects.filter(name='New Player').exists())
+        player = Player.objects.get(name='New Player')
+        self.assertEqual(player.position, 'STRIKER')
+
+    def test_register_requires_position(self):
+        res = self.client.post('/api/auth/register/', {
+            'username': 'noposition',
+            'email': 'noposition@example.com',
+            'name': 'No Position',
+            'password': 'SuperSecret123!',
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class MeUpdateTests(TestCase):

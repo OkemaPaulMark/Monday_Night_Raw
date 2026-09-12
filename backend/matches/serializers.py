@@ -10,7 +10,7 @@ class MatchParticipantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MatchParticipant
-        fields = ('id', 'player', 'player_id')
+        fields = ('id', 'player', 'player_id', 'side')
 
 
 class MatchAvailabilitySerializer(serializers.ModelSerializer):
@@ -46,6 +46,7 @@ class MatchSerializer(serializers.ModelSerializer):
     availabilities = MatchAvailabilitySerializer(many=True, read_only=True)
     goals = GoalEventSerializer(many=True, read_only=True)
     is_finalized = serializers.BooleanField(read_only=True)
+    has_team_scores = serializers.BooleanField(read_only=True)
     squad_size = serializers.SerializerMethodField()
     potw = serializers.SerializerMethodField()
 
@@ -55,6 +56,9 @@ class MatchSerializer(serializers.ModelSerializer):
             'id',
             'match_date',
             'status',
+            'team_a_score',
+            'team_b_score',
+            'has_team_scores',
             'notes',
             'created_at',
             'updated_at',
@@ -68,6 +72,9 @@ class MatchSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             'status',
+            'team_a_score',
+            'team_b_score',
+            'has_team_scores',
             'created_at',
             'updated_at',
             'finalized_at',
@@ -112,3 +119,17 @@ class GoalsReplaceSerializer(serializers.Serializer):
         default=list,
         help_text='Players who played but neither scored nor assisted.',
     )
+    team_a = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        help_text='Optional: players on Team A, for clean-sheet scoring.',
+    )
+    team_b = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        help_text='Optional: players on Team B, for clean-sheet scoring.',
+    )
+    team_a_score = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    team_b_score = serializers.IntegerField(required=False, allow_null=True, min_value=0)

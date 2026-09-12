@@ -10,6 +10,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'email',
+            'position',
             'profile_photo',
             'is_active',
             'user',
@@ -22,7 +23,7 @@ class PlayerSerializer(serializers.ModelSerializer):
 class PlayerWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Player
-        fields = ('name', 'email', 'profile_photo', 'is_active', 'user')
+        fields = ('name', 'email', 'position', 'profile_photo', 'is_active', 'user')
 
 
 class PlayerPhotoUploadSerializer(serializers.ModelSerializer):

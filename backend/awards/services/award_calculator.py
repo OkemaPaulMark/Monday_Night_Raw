@@ -15,6 +15,11 @@ from players.models import Player
 from stats.services.statistics_calculator import match_player_performance
 
 TOTW_SIZE = 7
+TOTW_SLOTS = {
+    Player.Position.DEFENDER: 2,
+    Player.Position.MIDFIELDER: 3,
+    Player.Position.STRIKER: 2,
+}
 
 
 @transaction.atomic
@@ -62,27 +67,70 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
             rank=rank,
         )
 
-    # Fixed at TOTW_SIZE regardless of turnout — turnout is dynamic (12 one
-    # week, 20+ the next), and "Team of the Week" should still mean a normal
-    # team size, not scale up on a big-turnout day.
-    totw_size = min(TOTW_SIZE, len(scored))
+    # Filled by position slot (2 Defenders / 3 Midfielders / 2 Strikers), not
+    # a flat top-7 — a striker's goals shouldn't crowd out every defender.
+    # Ranking within each slot already uses match_player_performance, which
+    # only credits Defenders/Midfielders for clean sheets/conceded when that
+    # data exists for the day; players with no position set can't fill a
+    # slot at all. A short-handed slot (e.g. only 1 defender played) is just
+    # left short — admin can fill it via the manual override if they want.
     totw = Award.objects.create(
         award_type=Award.AwardType.TEAM_OF_THE_WEEK,
         match=match,
         is_confirmed=confirm,
     )
-    for rank, (player, score) in enumerate(scored[:totw_size], start=1):
-        AwardRecipient.objects.create(
-            award=totw,
-            player=player,
-            performance_score=score,
-            rank=rank,
-        )
+    totw_player_ids: list[int] = []
+    for position, slot_count in TOTW_SLOTS.items():
+        position_scored = [(p, s) for p, s in scored if p.position == position]
+        for rank, (player, score) in enumerate(position_scored[:slot_count], start=1):
+            AwardRecipient.objects.create(
+                award=totw,
+                player=player,
+                performance_score=score,
+                rank=rank,
+            )
+            totw_player_ids.append(player.id)
 
     return {
         'player_of_the_week': [p.id for p in potw_players],
-        'team_of_the_week': [p.id for p, _ in scored[:totw_size]],
+        'team_of_the_week': totw_player_ids,
     }
+
+
+@transaction.atomic
+def set_totw_recipients(award: Award, player_ids: list[int]) -> Award:
+    """
+    Manually override Team of the Week for a match.
+
+    Always available to admin, not just a fallback for missing data — the
+    automatic slot-filling is a starting point, not the final word. Slot
+    shape (2/3/2) isn't enforced here; admin has final say on the roster.
+    Players must have actually played that matchday.
+    """
+    if award.award_type != Award.AwardType.TEAM_OF_THE_WEEK or award.match is None:
+        raise ValidationError({'detail': "Only a match's Team of the Week can be manually edited."})
+
+    if len(set(player_ids)) != len(player_ids):
+        raise ValidationError({'detail': 'Duplicate players in Team of the Week selection.'})
+
+    participant_ids = set(award.match.participants.values_list('player_id', flat=True))
+    invalid = [pid for pid in player_ids if pid not in participant_ids]
+    if invalid:
+        raise ValidationError({'detail': f'Players {invalid} did not play in this match.'})
+
+    award.recipients.all().delete()
+    players_by_id = {p.id: p for p in Player.objects.filter(id__in=player_ids)}
+    for rank, pid in enumerate(player_ids, start=1):
+        player = players_by_id[pid]
+        AwardRecipient.objects.create(
+            award=award,
+            player=player,
+            performance_score=match_player_performance(award.match, player),
+            rank=rank,
+        )
+    award.is_confirmed = True
+    award.save(update_fields=['is_confirmed', 'updated_at'])
+    return award
 
 
 @transaction.atomic

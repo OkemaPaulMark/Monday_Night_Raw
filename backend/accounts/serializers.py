@@ -58,6 +58,7 @@ class RegisterSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField(max_length=120)
     password = serializers.CharField(write_only=True)
+    position = serializers.ChoiceField(choices=Player.Position.choices)
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
@@ -90,6 +91,7 @@ class RegisterSerializer(serializers.Serializer):
             user=user,
             name=validated_data['name'],
             email=validated_data['email'],
+            position=validated_data['position'],
             is_active=True,
         )
         token = Token.objects.create(user=user)
@@ -103,6 +105,7 @@ class MeUpdateSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150, required=False)
     email = serializers.EmailField(required=False)
     name = serializers.CharField(max_length=120, required=False)
+    position = serializers.ChoiceField(choices=Player.Position.choices, required=False)
 
     def validate_username(self, value):
         user = self.context['user']
@@ -144,6 +147,9 @@ class MeUpdateSerializer(serializers.Serializer):
             if 'email' in data:
                 player.email = data['email']
                 update_fields.append('email')
+            if 'position' in data:
+                player.position = data['position']
+                update_fields.append('position')
             if update_fields:
                 player.save(update_fields=[*update_fields, 'updated_at'])
 

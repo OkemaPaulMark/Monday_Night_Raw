@@ -6,9 +6,24 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal
 
 from awards.models import Award, AwardRecipient
-from matches.models import GoalEvent, Match
+from matches.models import GoalEvent, Match, MatchParticipant
 from players.models import Player
 from stats.scoring import calculate_match_performance_score, performance_to_rating
+
+
+def _defensive_stats(match: Match, player: Player) -> tuple[bool | None, int | None]:
+    """
+    (clean_sheet, goals_conceded) for this player in this match, if team
+    side + score were entered that day. (None, None) otherwise — most days
+    won't have this, since team/score entry is optional.
+    """
+    if not match.has_team_scores:
+        return None, None
+    participant = match.participants.filter(player=player).first()
+    if participant is None or participant.side is None:
+        return None, None
+    conceded = match.team_b_score if participant.side == MatchParticipant.Side.A else match.team_a_score
+    return conceded == 0, conceded
 
 
 @dataclass
@@ -16,10 +31,12 @@ class PlayerStats:
     player_id: int
     name: str
     profile_photo: str | None = None
+    position: str | None = None
     matches_played: int = 0
     goals: int = 0
     assists: int = 0
     goal_contributions: int = 0
+    clean_sheets: int = 0
     potw: int = 0
     rating: float = 0.0  # career average out of 5.0
 
@@ -43,6 +60,7 @@ def calculate_player_stats(player: Player) -> PlayerStats:
         player_id=player.id,
         name=player.name,
         profile_photo=photo,
+        position=player.position,
     )
 
     rating_total = Decimal('0')
@@ -51,7 +69,16 @@ def calculate_player_stats(player: Player) -> PlayerStats:
         stats.matches_played += 1
         match_goals = match.goals.filter(scorer=player).count()
         match_assists = match.goals.filter(assister=player).count()
-        raw = calculate_match_performance_score(goals=match_goals, assists=match_assists)
+        clean_sheet, goals_conceded = _defensive_stats(match, player)
+        if clean_sheet:
+            stats.clean_sheets += 1
+        raw = calculate_match_performance_score(
+            goals=match_goals,
+            assists=match_assists,
+            position=player.position,
+            clean_sheet=clean_sheet,
+            goals_conceded=goals_conceded,
+        )
         rating_total += performance_to_rating(raw)
 
     stats.goals = GoalEvent.objects.filter(
@@ -81,6 +108,7 @@ def leaderboard(ordering: str = '-goals') -> list[dict]:
         'goals', '-goals',
         'assists', '-assists',
         'goal_contributions', '-goal_contributions',
+        'clean_sheets', '-clean_sheets',
         'potw', '-potw',
         'matches_played', '-matches_played',
         'rating', '-rating',
@@ -108,18 +136,27 @@ def player_match_history(player: Player) -> list[dict]:
     for match in matches:
         goals = match.goals.filter(scorer=player).count()
         assists = match.goals.filter(assister=player).count()
+        clean_sheet, goals_conceded = _defensive_stats(match, player)
         is_potw = AwardRecipient.objects.filter(
             player=player,
             award__match=match,
             award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
         ).exists()
-        raw = calculate_match_performance_score(goals=goals, assists=assists)
+        raw = calculate_match_performance_score(
+            goals=goals,
+            assists=assists,
+            position=player.position,
+            clean_sheet=clean_sheet,
+            goals_conceded=goals_conceded,
+        )
 
         history.append({
             'match_id': match.id,
             'match_date': match.match_date,
             'goals': goals,
             'assists': assists,
+            'clean_sheet': clean_sheet,
+            'goals_conceded': goals_conceded,
             'potw': is_potw,
             'rating': float(performance_to_rating(raw)),
         })
@@ -127,9 +164,13 @@ def player_match_history(player: Player) -> list[dict]:
 
 
 def match_player_performance(match: Match, player: Player) -> Decimal:
+    clean_sheet, goals_conceded = _defensive_stats(match, player)
     return calculate_match_performance_score(
         goals=match.goals.filter(scorer=player).count(),
         assists=match.goals.filter(assister=player).count(),
+        position=player.position,
+        clean_sheet=clean_sheet,
+        goals_conceded=goals_conceded,
     )
 
 

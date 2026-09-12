@@ -27,8 +27,22 @@ export const matchesApi = {
   list: (params) => api.get('/matches/', { params }).then((r) => r.data),
   get: (id) => api.get(`/matches/${id}/`).then((r) => r.data),
   create: (payload) => api.post('/matches/', payload).then((r) => r.data),
-  setGoals: (id, goals, alsoPlayed = []) =>
-    api.post(`/matches/${id}/goals/`, { goals, also_played: alsoPlayed }).then((r) => r.data),
+  setGoals: (id, {
+    goals,
+    alsoPlayed = [],
+    teamA = [],
+    teamB = [],
+    teamAScore = null,
+    teamBScore = null,
+  }) =>
+    api.post(`/matches/${id}/goals/`, {
+      goals,
+      also_played: alsoPlayed,
+      team_a: teamA,
+      team_b: teamB,
+      team_a_score: teamAScore,
+      team_b_score: teamBScore,
+    }).then((r) => r.data),
   finalize: (id) => api.post(`/matches/${id}/finalize/`).then((r) => r.data),
   reopen: (id) => api.post(`/matches/${id}/reopen/`).then((r) => r.data),
   getAvailability: (id) => api.get(`/matches/${id}/availability/`).then((r) => r.data),
@@ -50,4 +64,6 @@ export const awardsApi = {
   generateMonthly: (year, month) =>
     api.post('/awards/monthly/', { year, month }).then((r) => r.data),
   confirm: (id) => api.post(`/awards/${id}/confirm/`).then((r) => r.data),
+  setTotwRecipients: (id, playerIds) =>
+    api.post(`/awards/${id}/set-totw/`, { player_ids: playerIds }).then((r) => r.data),
 }

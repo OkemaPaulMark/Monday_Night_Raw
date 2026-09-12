@@ -6,7 +6,11 @@ from rest_framework.views import APIView
 from accounts.permissions import IsAdminRole
 from awards.models import Award
 from awards.serializers import AwardSerializer
-from awards.services.award_calculator import confirm_weekly_award, generate_monthly_awards
+from awards.services.award_calculator import (
+    confirm_weekly_award,
+    generate_monthly_awards,
+    set_totw_recipients,
+)
 
 
 class WeeklyAwardsView(APIView):
@@ -68,5 +72,27 @@ class ConfirmAwardView(APIView):
         except Award.DoesNotExist:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         confirm_weekly_award(award)
+        award.refresh_from_db()
+        return Response(AwardSerializer(award).data)
+
+
+class SetTotwRecipientsView(APIView):
+    """Manual override of a match's Team of the Week — always available to
+    admin, not just a fallback for missing clean-sheet data."""
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def post(self, request, pk):
+        try:
+            award = Award.objects.get(pk=pk)
+        except Award.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        player_ids = request.data.get('player_ids')
+        if not isinstance(player_ids, list):
+            return Response(
+                {'detail': 'player_ids must be a list of player IDs.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        set_totw_recipients(award, player_ids)
         award.refresh_from_db()
         return Response(AwardSerializer(award).data)

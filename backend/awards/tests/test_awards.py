@@ -2,10 +2,11 @@ from datetime import date
 
 from django.test import TestCase
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from awards.models import Award
-from awards.services.award_calculator import generate_monthly_awards
+from awards.services.award_calculator import generate_monthly_awards, set_totw_recipients
 from matches.models import Match
 from matches.services import match_service
 from matches.tests.helpers import (
@@ -15,6 +16,7 @@ from matches.tests.helpers import (
     create_player_user,
     create_players,
 )
+from players.models import Player
 from stats.services.statistics_calculator import calculate_player_stats
 
 
@@ -104,6 +106,74 @@ class AwardTests(TestCase):
         totw_ids = {r.player_id for r in totw.recipients.all()}
         self.assertIn(players[0].id, totw_ids)
 
+    def test_totw_filled_by_position_slots(self):
+        """
+        2 Defenders / 3 Midfielders / 2 Strikers, ranked within their own
+        position group — not one global top-7. create_players cycles
+        D/M/S, so 14 players give 5 of each, well over each slot.
+        """
+        players = create_players(14)
+        match = Match.objects.create(match_date=date(2026, 10, 26))
+        match_service.replace_goals(match, [
+            {'scorer_id': p.id, 'assister_id': None} for p in players
+        ])
+        match_service.finalize_match(match)
+
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+        recipients = list(totw.recipients.select_related('player'))
+        self.assertEqual(len(recipients), 7)
+        positions = [r.player.position for r in recipients]
+        self.assertEqual(positions.count(Player.Position.DEFENDER), 2)
+        self.assertEqual(positions.count(Player.Position.MIDFIELDER), 3)
+        self.assertEqual(positions.count(Player.Position.STRIKER), 2)
+
+    def test_totw_slot_left_short_when_position_unavailable(self):
+        """Only strikers played — Defender/Midfielder slots are just empty,
+        not backfilled from another position."""
+        strikers = [
+            Player.objects.create(name=f'Striker {i}', position=Player.Position.STRIKER)
+            for i in range(3)
+        ]
+        match = Match.objects.create(match_date=date(2026, 11, 2))
+        match_service.replace_goals(match, [
+            {'scorer_id': p.id, 'assister_id': None} for p in strikers
+        ])
+        match_service.finalize_match(match)
+
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+        self.assertEqual(totw.recipients.count(), 2)  # striker slot cap, not 3
+
+    def test_manual_totw_override(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+
+        # All participants of this match (see complete_match_with_goals)
+        new_ids = [players[1].id, players[3].id, players[8].id]
+        set_totw_recipients(totw, new_ids)
+        totw.refresh_from_db()
+
+        self.assertEqual(
+            list(totw.recipients.order_by('rank').values_list('player_id', flat=True)),
+            new_ids,
+        )
+        self.assertTrue(totw.is_confirmed)
+
+    def test_manual_totw_override_rejects_non_participant(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+        outsider = Player.objects.create(name='Never Played', position=Player.Position.STRIKER)
+        with self.assertRaises(ValidationError):
+            set_totw_recipients(totw, [outsider.id])
+
+    def test_manual_totw_override_rejects_duplicates(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+        with self.assertRaises(ValidationError):
+            set_totw_recipients(totw, [players[1].id, players[1].id])
+
     def test_monthly_awards(self):
         match, players = create_match_with_players()
         complete_match_with_goals(match, players)
@@ -153,3 +223,38 @@ class MatchApiWorkflowTests(TestCase):
         res = self.client.get('/api/leaderboard/')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(len(res.data) >= 22)
+
+    def test_goals_api_accepts_optional_team_and_score(self):
+        players = create_players(4)
+        res = self.client.post('/api/matches/', {'match_date': '2026-09-28'}, format='json')
+        match_id = res.data['id']
+
+        res = self.client.post(
+            f'/api/matches/{match_id}/goals/',
+            {
+                'goals': [],
+                'team_a': [players[0].id, players[1].id],
+                'team_b': [players[2].id, players[3].id],
+                'team_a_score': 2,
+                'team_b_score': 0,
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['team_a_score'], 2)
+        self.assertEqual(res.data['team_b_score'], 0)
+        self.assertTrue(res.data['has_team_scores'])
+        self.assertEqual(res.data['squad_size'], 4)
+
+    def test_set_totw_api(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+
+        res = self.client.post(
+            f'/api/awards/{totw.id}/set-totw/',
+            {'player_ids': [players[1].id, players[3].id]},
+            format='json',
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data['recipients']), 2)

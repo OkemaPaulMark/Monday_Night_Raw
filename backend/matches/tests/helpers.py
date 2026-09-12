@@ -27,8 +27,22 @@ def create_player_user(username, password='pass12345'):
     )
 
 
+_POSITION_CYCLE = [
+    Player.Position.DEFENDER,
+    Player.Position.MIDFIELDER,
+    Player.Position.STRIKER,
+]
+
+
 def create_players(count=14):
-    return [Player.objects.create(name=f'Test Player {i+1:02d}') for i in range(count)]
+    """Cycles through positions so tests naturally get a mix of all three."""
+    return [
+        Player.objects.create(
+            name=f'Test Player {i+1:02d}',
+            position=_POSITION_CYCLE[i % 3],
+        )
+        for i in range(count)
+    ]
 
 
 def create_fourteen_players():

@@ -9,6 +9,11 @@ class Player(models.Model):
     Players are NOT recreated each Monday.
     """
 
+    class Position(models.TextChoices):
+        DEFENDER = 'DEFENDER', 'Defender'
+        MIDFIELDER = 'MIDFIELDER', 'Midfielder'
+        STRIKER = 'STRIKER', 'Striker'
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -18,6 +23,13 @@ class Player(models.Model):
     )
     name = models.CharField(max_length=120)
     email = models.EmailField(blank=True, default='')
+    position = models.CharField(
+        max_length=20,
+        choices=Position.choices,
+        null=True,
+        blank=True,
+        help_text='Required for new registrations; existing players may not have one set yet.',
+    )
     profile_photo = models.ImageField(
         upload_to='profile_photos/',
         blank=True,
