@@ -25,11 +25,7 @@ class AwardSerializer(serializers.ModelSerializer):
         source='get_award_type_display',
         read_only=True,
     )
-    match_date = serializers.DateField(
-        source='match.match_date',
-        read_only=True,
-        allow_null=True,
-    )
+    match_date = serializers.SerializerMethodField()
 
     class Meta:
         model = Award
@@ -38,6 +34,7 @@ class AwardSerializer(serializers.ModelSerializer):
             'award_type',
             'award_type_display',
             'match',
+            'game_week',
             'match_date',
             'year',
             'month',
@@ -47,3 +44,10 @@ class AwardSerializer(serializers.ModelSerializer):
             'updated_at',
             'recipients',
         )
+
+    def get_match_date(self, obj):
+        if obj.match_id:
+            return obj.match.match_date
+        if obj.game_week_id:
+            return obj.game_week.week_date
+        return None

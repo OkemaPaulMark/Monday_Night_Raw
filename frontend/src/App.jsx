@@ -10,12 +10,14 @@ import AwardsPage from './pages/AwardsPage'
 import ProfilePage from './pages/ProfilePage'
 import MatchesPage from './pages/MatchesPage'
 import MatchDetailPage from './pages/MatchDetailPage'
+import GameWeekDetailPage from './pages/GameWeekDetailPage'
 import {
   AdminDashboardPage,
   AdminPlayersPage,
   CreateMatchPage,
   MatchWizardPage,
 } from './pages/admin/AdminPages'
+import { AdminGameWeekPage } from './pages/admin/GameWeekPages'
 
 function HomeRedirect() {
   const { isAdmin } = useAuth()
@@ -38,6 +40,7 @@ export default function App() {
               <Route path="awards" element={<AwardsPage />} />
               <Route path="matches" element={<MatchesPage />} />
               <Route path="matches/:id" element={<MatchDetailPage />} />
+              <Route path="game-weeks/:id" element={<GameWeekDetailPage />} />
               <Route path="profile" element={<ProfilePage self />} />
               <Route path="players/:id" element={<ProfilePage />} />
             </Route>
@@ -50,6 +53,7 @@ export default function App() {
               <Route path="admin/matches" element={<MatchesPage />} />
               <Route path="admin/matches/new" element={<CreateMatchPage />} />
               <Route path="admin/matches/:id" element={<MatchWizardPage />} />
+              <Route path="admin/game-weeks/:id" element={<AdminGameWeekPage />} />
             </Route>
           </Route>
 

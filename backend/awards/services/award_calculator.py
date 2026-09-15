@@ -10,9 +10,12 @@ from django.db.models import Count
 from rest_framework.exceptions import ValidationError
 
 from awards.models import Award, AwardRecipient
-from matches.models import Match
+from matches.models import GameWeek, Match
 from players.models import Player
-from stats.services.statistics_calculator import match_player_performance
+from stats.services.statistics_calculator import (
+    game_week_player_performance,
+    match_player_performance,
+)
 
 TOTW_SIZE = 7
 TOTW_SLOTS = {
@@ -22,26 +25,21 @@ TOTW_SLOTS = {
 }
 
 
-@transaction.atomic
-def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> dict:
-    """Create/replace POTW and TOTW for a finalized match."""
-    if match.finalized_at is None:
-        raise ValidationError({'detail': 'Match must be finalized before generating weekly awards.'})
-
+def _build_weekly_awards(*, award_kwargs: dict, participants: list[Player], scores: dict, confirm: bool) -> dict:
+    """
+    Shared POTW/TOTW builder used for both a standalone match and a
+    game-week aggregate — `award_kwargs` pins the FK (match= or game_week=)
+    every created Award should carry, `scores` maps player id -> Decimal.
+    """
     Award.objects.filter(
-        match=match,
         award_type__in=[
             Award.AwardType.PLAYER_OF_THE_WEEK,
             Award.AwardType.TEAM_OF_THE_WEEK,
         ],
+        **award_kwargs,
     ).delete()
 
-    participants = list(
-        Player.objects.filter(participations__match=match).distinct()
-    )
-    scored: list[tuple[Player, Decimal]] = []
-    for player in participants:
-        scored.append((player, match_player_performance(match, player)))
+    scored: list[tuple[Player, Decimal]] = [(p, scores[p.id]) for p in participants]
     # Score descending, then name ascending as a deterministic tie-break —
     # matters most for "also played" attendees who all sit at 0 and need a
     # stable, explainable fill order for the remaining Team of the Week spots.
@@ -56,8 +54,8 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
 
     potw = Award.objects.create(
         award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
-        match=match,
         is_confirmed=confirm,
+        **award_kwargs,
     )
     for rank, player in enumerate(potw_players, start=1):
         AwardRecipient.objects.create(
@@ -69,15 +67,15 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
 
     # Filled by position slot (2 Defenders / 3 Midfielders / 2 Strikers), not
     # a flat top-7 — a striker's goals shouldn't crowd out every defender.
-    # Ranking within each slot already uses match_player_performance, which
+    # Ranking within each slot already uses the same performance score, which
     # only credits Defenders/Midfielders for clean sheets/conceded when that
-    # data exists for the day; players with no position set can't fill a
-    # slot at all. A short-handed slot (e.g. only 1 defender played) is just
-    # left short — admin can fill it via the manual override if they want.
+    # data exists; players with no position set can't fill a slot at all. A
+    # short-handed slot (e.g. only 1 defender played) is just left short —
+    # admin can fill it via the manual override if they want.
     totw = Award.objects.create(
         award_type=Award.AwardType.TEAM_OF_THE_WEEK,
-        match=match,
         is_confirmed=confirm,
+        **award_kwargs,
     )
     totw_player_ids: list[int] = []
     for position, slot_count in TOTW_SLOTS.items():
@@ -98,34 +96,78 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
 
 
 @transaction.atomic
+def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> dict:
+    """Create/replace POTW and TOTW for a finalized standalone match."""
+    if match.finalized_at is None:
+        raise ValidationError({'detail': 'Match must be finalized before generating weekly awards.'})
+
+    participants = list(Player.objects.filter(participations__match=match).distinct())
+    scores = {p.id: match_player_performance(match, p) for p in participants}
+    return _build_weekly_awards(
+        award_kwargs={'match': match},
+        participants=participants,
+        scores=scores,
+        confirm=confirm,
+    )
+
+
+@transaction.atomic
+def generate_weekly_awards_for_game_week(game_week: GameWeek, *, confirm: bool = True) -> dict:
+    """Create/replace POTW and TOTW for a finalized game week, aggregated
+    across every one of its fixtures."""
+    if game_week.finalized_at is None:
+        raise ValidationError({'detail': 'Game week must be finalized before generating weekly awards.'})
+
+    participants = list(
+        Player.objects.filter(participations__match__game_week=game_week).distinct()
+    )
+    scores = {p.id: game_week_player_performance(game_week, p) for p in participants}
+    return _build_weekly_awards(
+        award_kwargs={'game_week': game_week},
+        participants=participants,
+        scores=scores,
+        confirm=confirm,
+    )
+
+
+@transaction.atomic
 def set_totw_recipients(award: Award, player_ids: list[int]) -> Award:
     """
-    Manually override Team of the Week for a match.
+    Manually override Team of the Week for a match or game week.
 
     Always available to admin, not just a fallback for missing data — the
     automatic slot-filling is a starting point, not the final word. Slot
     shape (2/3/2) isn't enforced here; admin has final say on the roster.
-    Players must have actually played that matchday.
+    Players must have actually played that matchday / game week.
     """
-    if award.award_type != Award.AwardType.TEAM_OF_THE_WEEK or award.match is None:
-        raise ValidationError({'detail': "Only a match's Team of the Week can be manually edited."})
+    if award.award_type != Award.AwardType.TEAM_OF_THE_WEEK or (award.match is None and award.game_week is None):
+        raise ValidationError({'detail': "Only a match or game week's Team of the Week can be manually edited."})
 
     if len(set(player_ids)) != len(player_ids):
         raise ValidationError({'detail': 'Duplicate players in Team of the Week selection.'})
 
-    participant_ids = set(award.match.participants.values_list('player_id', flat=True))
+    if award.match is not None:
+        participant_ids = set(award.match.participants.values_list('player_id', flat=True))
+    else:
+        participant_ids = set(
+            award.game_week.fixtures.values_list('participants__player_id', flat=True)
+        )
     invalid = [pid for pid in player_ids if pid not in participant_ids]
     if invalid:
-        raise ValidationError({'detail': f'Players {invalid} did not play in this match.'})
+        raise ValidationError({'detail': f'Players {invalid} did not play that matchday.'})
 
     award.recipients.all().delete()
     players_by_id = {p.id: p for p in Player.objects.filter(id__in=player_ids)}
     for rank, pid in enumerate(player_ids, start=1):
         player = players_by_id[pid]
+        if award.match is not None:
+            score = match_player_performance(award.match, player)
+        else:
+            score = game_week_player_performance(award.game_week, player)
         AwardRecipient.objects.create(
             award=award,
             player=player,
-            performance_score=match_player_performance(award.match, player),
+            performance_score=score,
             rank=rank,
         )
     award.is_confirmed = True

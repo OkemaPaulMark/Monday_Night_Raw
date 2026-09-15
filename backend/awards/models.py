@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import Q
 
-from matches.models import Match
+from matches.models import GameWeek, Match
 from players.models import Player
 
 
@@ -31,7 +31,15 @@ class Award(models.Model):
         null=True,
         blank=True,
         related_name='awards',
-        help_text='Set for weekly awards tied to a Monday match.',
+        help_text='Set for weekly awards tied to a standalone Monday match.',
+    )
+    game_week = models.ForeignKey(
+        GameWeek,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='awards',
+        help_text='Set for weekly awards aggregated across a multi-fixture game week.',
     )
     year = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     month = models.PositiveIntegerField(null=True, blank=True, db_index=True)
@@ -52,6 +60,11 @@ class Award(models.Model):
                 name='unique_weekly_award_per_match_type',
             ),
             models.UniqueConstraint(
+                fields=['award_type', 'game_week'],
+                condition=Q(game_week__isnull=False),
+                name='unique_weekly_award_per_game_week_type',
+            ),
+            models.UniqueConstraint(
                 fields=['award_type', 'year', 'month'],
                 condition=Q(
                     match__isnull=True,
@@ -68,11 +81,14 @@ class Award(models.Model):
         indexes = [
             models.Index(fields=['award_type', 'year', 'month']),
             models.Index(fields=['award_type', 'match']),
+            models.Index(fields=['award_type', 'game_week']),
         ]
 
     def __str__(self) -> str:
         if self.match_id:
             return f'{self.get_award_type_display()} — {self.match}'
+        if self.game_week_id:
+            return f'{self.get_award_type_display()} — {self.game_week}'
         if self.year and self.month:
             return f'{self.get_award_type_display()} — {self.year}-{self.month:02d}'
         return f'{self.get_award_type_display()} #{self.pk}'

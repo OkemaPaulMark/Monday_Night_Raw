@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { awardsApi, matchesApi } from '../services/endpoints'
+import { awardsApi, gameWeeksApi, matchesApi } from '../services/endpoints'
 import { useAuth } from '../context/AuthContext'
 import { ErrorBanner, LoadingState, SectionTitle, EmptyState } from '../components/ui'
 import TeamOfTheWeekFormation from '../components/TeamOfTheWeekFormation'
@@ -14,11 +14,13 @@ function positionLabel(value) {
 function groupWeeklyByMatch(weekly) {
   const map = new Map()
   for (const award of weekly) {
-    if (!award.match) continue
-    const key = String(award.match)
+    if (!award.match && !award.game_week) continue
+    const key = award.match ? `m${award.match}` : `gw${award.game_week}`
     if (!map.has(key)) {
       map.set(key, {
+        weekKey: key,
         matchId: award.match,
+        gameWeekId: award.game_week,
         matchDate: award.match_date,
         awards: [],
       })
@@ -56,7 +58,7 @@ export default function AwardsPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [selectedPlayerId, setSelectedPlayerId] = useState(null)
-  const [selectedMatchId, setSelectedMatchId] = useState('')
+  const [selectedWeekKey, setSelectedWeekKey] = useState('')
   const [editingTotw, setEditingTotw] = useState(false)
   const [matchParticipants, setMatchParticipants] = useState([])
   const [manualIds, setManualIds] = useState([])
@@ -92,15 +94,15 @@ export default function AwardsPage() {
   // Default to latest match day whenever award data refreshes
   useEffect(() => {
     if (!weeklyGroups.length) {
-      setSelectedMatchId('')
+      setSelectedWeekKey('')
       return
     }
-    const latestId = String(weeklyGroups[0].matchId)
-    setSelectedMatchId((current) => {
-      if (current && weeklyGroups.some((g) => String(g.matchId) === current)) {
+    const latestKey = weeklyGroups[0].weekKey
+    setSelectedWeekKey((current) => {
+      if (current && weeklyGroups.some((g) => g.weekKey === current)) {
         return current
       }
-      return latestId
+      return latestKey
     })
   }, [weeklyGroups])
 
@@ -113,24 +115,33 @@ export default function AwardsPage() {
     }
   }
 
-  const selectedGroup = weeklyGroups.find(
-    (g) => String(g.matchId) === String(selectedMatchId),
-  )
+  const selectedGroup = weeklyGroups.find((g) => g.weekKey === selectedWeekKey)
   const potw = selectedGroup?.awards.find((a) => a.award_type === 'POTW')
   const totw = selectedGroup?.awards.find((a) => a.award_type === 'TOTW')
 
   useEffect(() => {
     setEditingTotw(false)
     setTotwError('')
-  }, [selectedMatchId])
+  }, [selectedWeekKey])
 
   async function startEditTotw() {
     setTotwError('')
     setManualIds((totw?.recipients || []).map((r) => r.player.id))
     setEditingTotw(true)
     try {
-      const m = await matchesApi.get(selectedGroup.matchId)
-      setMatchParticipants(m.participants.map((row) => row.player))
+      if (selectedGroup.matchId) {
+        const m = await matchesApi.get(selectedGroup.matchId)
+        setMatchParticipants(m.participants.map((row) => row.player))
+      } else {
+        const gw = await gameWeeksApi.get(selectedGroup.gameWeekId)
+        const byId = new Map()
+        for (const fixture of gw.fixtures) {
+          for (const row of fixture.participants) {
+            byId.set(row.player.id, row.player)
+          }
+        }
+        setMatchParticipants([...byId.values()])
+      }
     } catch (e) {
       setTotwError(e.message)
     }
@@ -173,12 +184,13 @@ export default function AwardsPage() {
           <label htmlFor="match-day">Match day</label>
           <select
             id="match-day"
-            value={selectedMatchId}
-            onChange={(e) => setSelectedMatchId(e.target.value)}
+            value={selectedWeekKey}
+            onChange={(e) => setSelectedWeekKey(e.target.value)}
           >
             {weeklyGroups.map((g, index) => (
-              <option key={g.matchId} value={String(g.matchId)}>
+              <option key={g.weekKey} value={g.weekKey}>
                 {formatMatchDay(g.matchDate)}
+                {g.gameWeekId ? ' · game week' : ''}
                 {index === 0 ? ' · Latest' : ''}
               </option>
             ))}

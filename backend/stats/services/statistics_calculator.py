@@ -174,6 +174,19 @@ def match_player_performance(match: Match, player: Player) -> Decimal:
     )
 
 
+def game_week_player_performance(game_week, player: Player) -> Decimal:
+    """
+    A player's aggregate score across every fixture in a game week — the sum
+    of their per-fixture performance. A fixture the player didn't feature in
+    contributes 0 (goals/assists counts and clean-sheet lookups on that
+    fixture simply resolve to nothing for them).
+    """
+    total = Decimal('0')
+    for fixture in game_week.fixtures.all():
+        total += match_player_performance(fixture, player)
+    return total
+
+
 def dashboard_summary() -> dict:
     players = Player.objects.filter(is_active=True)
     matches = _finalized_matches().order_by('-match_date', '-id')
@@ -184,26 +197,40 @@ def dashboard_summary() -> dict:
         ordered = sorted(board, key=lambda r: r[metric], reverse=True)
         return ordered[0] if ordered else None
 
-    latest_potw = (
+    # Sorted in Python, not the DB: `match` and `game_week` are mutually
+    # exclusive nullable FKs, so ordering by either column directly would
+    # push NULLs to one end (SQLite: last on DESC) regardless of which
+    # award type is actually most recent.
+    potw_candidates = (
         AwardRecipient.objects.filter(
             award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
             award__is_confirmed=True,
         )
-        .select_related('player', 'award__match')
-        .order_by('-award__match__match_date')
-        .first()
+        .select_related('player', 'award__match', 'award__game_week')
+    )
+    latest_potw = max(
+        potw_candidates,
+        key=lambda r: r.award.match.match_date if r.award.match_id else r.award.game_week.week_date,
+        default=None,
     )
 
     latest_match_potw = None
     latest_match_goals = None
     if latest:
-        recipients = AwardRecipient.objects.filter(
-            award__match=latest,
-            award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
-        ).select_related('player')
+        if latest.game_week_id:
+            recipients = AwardRecipient.objects.filter(
+                award__game_week_id=latest.game_week_id,
+                award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
+            ).select_related('player')
+            latest_match_goals = GoalEvent.objects.filter(match__game_week_id=latest.game_week_id).count()
+        else:
+            recipients = AwardRecipient.objects.filter(
+                award__match=latest,
+                award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
+            ).select_related('player')
+            latest_match_goals = latest.goals.count()
         if recipients:
             latest_match_potw = ', '.join(r.player.name for r in recipients)
-        latest_match_goals = latest.goals.count()
 
     return {
         'total_players': players.count(),
@@ -221,7 +248,11 @@ def dashboard_summary() -> dict:
         'latest_potw': (
             {
                 'player': latest_potw.player.name,
-                'match_date': latest_potw.award.match.match_date if latest_potw.award.match else None,
+                'match_date': (
+                    latest_potw.award.match.match_date
+                    if latest_potw.award.match_id
+                    else latest_potw.award.game_week.week_date
+                ),
             }
             if latest_potw
             else None

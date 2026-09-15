@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { matchesApi, playersApi, statsApi } from '../../services/endpoints'
+import { gameWeeksApi, matchesApi, playersApi, statsApi } from '../../services/endpoints'
 import { ErrorBanner, LoadingState, SectionTitle, StatTile } from '../../components/ui'
 import PlayerAvatar from '../../components/PlayerAvatar'
 
@@ -208,6 +208,19 @@ export function CreateMatchPage() {
     }
   }
 
+  async function createGameWeek() {
+    setSaving(true)
+    setError('')
+    try {
+      const gameWeek = await gameWeeksApi.create({ week_date: matchDate })
+      navigate(`/admin/game-weeks/${gameWeek.id}`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <SectionTitle>New matchday</SectionTitle>
@@ -225,6 +238,16 @@ export function CreateMatchPage() {
           {saving ? 'Creating…' : 'Continue to goals & assists'}
         </button>
       </form>
+      <div className="card space-y-2">
+        <p className="text-sm text-[var(--color-muted)]">
+          Turnout split into several teams playing multiple games on the same
+          date? Create a game week instead — add each game one at a time,
+          with Player/Team of the Week generated once, across the whole night.
+        </p>
+        <button type="button" className="btn btn-secondary w-full" disabled={saving} onClick={createGameWeek}>
+          Create a game week instead
+        </button>
+      </div>
     </div>
   )
 }

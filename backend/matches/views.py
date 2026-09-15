@@ -4,9 +4,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.permissions import IsAdminOrReadOnly, IsAdminRole
-from matches.models import Match, MatchAvailability
+from matches.models import GameWeek, GameWeekTeam, Match, MatchAvailability
 from matches.serializers import (
     AvailabilityWriteSerializer,
+    GameWeekCreateSerializer,
+    GameWeekSerializer,
+    GameWeekTeamCreateSerializer,
+    GameWeekTeamSerializer,
     GoalsReplaceSerializer,
     MatchAvailabilitySerializer,
     MatchCreateSerializer,
@@ -27,7 +31,7 @@ class MatchViewSet(viewsets.ModelViewSet):
         )
     )
     permission_classes = [IsAdminOrReadOnly]
-    filterset_fields = ['status', 'match_date']
+    filterset_fields = ['status', 'match_date', 'game_week']
     ordering_fields = ['match_date', 'created_at']
     ordering = ['-match_date', '-id']
 
@@ -115,6 +119,8 @@ class MatchViewSet(viewsets.ModelViewSet):
             team_b_ids=data.get('team_b'),
             team_a_score=data.get('team_a_score'),
             team_b_score=data.get('team_b_score'),
+            team_a_group_id=data.get('team_a_group'),
+            team_b_group_id=data.get('team_b_group'),
         )
         return Response(MatchSerializer(self.get_queryset().get(pk=match.pk)).data)
 
@@ -129,3 +135,84 @@ class MatchViewSet(viewsets.ModelViewSet):
         match = self.get_object()
         match_service.reopen_match(match)
         return Response(MatchSerializer(self.get_queryset().get(pk=match.pk)).data)
+
+
+class GameWeekViewSet(viewsets.ModelViewSet):
+    queryset = GameWeek.objects.all().prefetch_related(
+        'teams__players',
+        'fixtures__participants__player',
+        'fixtures__goals__scorer',
+        'fixtures__goals__assister',
+    )
+    permission_classes = [IsAdminOrReadOnly]
+    filterset_fields = ['status', 'week_date']
+    ordering_fields = ['week_date', 'created_at']
+    ordering = ['-week_date', '-id']
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return GameWeekCreateSerializer
+        return GameWeekSerializer
+
+    def get_permissions(self):
+        if self.action in {'create', 'finalize', 'reopen'}:
+            return [IsAuthenticated(), IsAdminRole()]
+        return [IsAuthenticated()]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        game_week = serializer.save()
+        return Response(
+            GameWeekSerializer(self.get_queryset().get(pk=game_week.pk)).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=['post'])
+    def finalize(self, request, pk=None):
+        game_week = self.get_object()
+        match_service.finalize_game_week(game_week)
+        return Response(GameWeekSerializer(self.get_queryset().get(pk=game_week.pk)).data)
+
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None):
+        game_week = self.get_object()
+        match_service.reopen_game_week(game_week)
+        return Response(GameWeekSerializer(self.get_queryset().get(pk=game_week.pk)).data)
+
+
+class GameWeekTeamViewSet(viewsets.ModelViewSet):
+    queryset = GameWeekTeam.objects.all().prefetch_related('players')
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    filterset_fields = ['game_week']
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_serializer_class(self):
+        if self.action in {'create', 'update', 'partial_update'}:
+            return GameWeekTeamCreateSerializer
+        return GameWeekTeamSerializer
+
+    def create(self, request, *args, **kwargs):
+        game_week_id = request.data.get('game_week')
+        try:
+            game_week = GameWeek.objects.get(pk=game_week_id)
+        except (GameWeek.DoesNotExist, TypeError, ValueError):
+            return Response({'detail': 'Valid game_week is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        name = request.data.get('name', '')
+        player_ids = request.data.get('player_ids')
+        team = match_service.create_game_week_team(game_week, name, player_ids)
+        return Response(GameWeekTeamSerializer(team).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        team = self.get_object()
+        team = match_service.update_game_week_team(
+            team,
+            name=request.data.get('name'),
+            player_ids=request.data.get('player_ids'),
+        )
+        return Response(GameWeekTeamSerializer(team).data)
+
+    def perform_destroy(self, instance):
+        match_service.ensure_game_week_editable(instance.game_week)
+        instance.delete()

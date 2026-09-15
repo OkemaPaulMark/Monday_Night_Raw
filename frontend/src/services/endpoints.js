@@ -34,6 +34,8 @@ export const matchesApi = {
     teamB = [],
     teamAScore = null,
     teamBScore = null,
+    teamAGroup = null,
+    teamBGroup = null,
   }) =>
     api.post(`/matches/${id}/goals/`, {
       goals,
@@ -42,6 +44,8 @@ export const matchesApi = {
       team_b: teamB,
       team_a_score: teamAScore,
       team_b_score: teamBScore,
+      team_a_group: teamAGroup,
+      team_b_group: teamBGroup,
     }).then((r) => r.data),
   finalize: (id) => api.post(`/matches/${id}/finalize/`).then((r) => r.data),
   reopen: (id) => api.post(`/matches/${id}/reopen/`).then((r) => r.data),
@@ -50,6 +54,21 @@ export const matchesApi = {
     api
       .post(`/matches/${id}/availability/`, player_id ? { status, player_id } : { status })
       .then((r) => r.data),
+}
+
+export const gameWeeksApi = {
+  list: (params) => api.get('/matches/game-weeks/', { params }).then((r) => r.data),
+  get: (id) => api.get(`/matches/game-weeks/${id}/`).then((r) => r.data),
+  create: (payload) => api.post('/matches/game-weeks/', payload).then((r) => r.data),
+  finalize: (id) => api.post(`/matches/game-weeks/${id}/finalize/`).then((r) => r.data),
+  reopen: (id) => api.post(`/matches/game-weeks/${id}/reopen/`).then((r) => r.data),
+}
+
+export const gameWeekTeamsApi = {
+  list: (gameWeekId) => api.get('/matches/game-week-teams/', { params: { game_week: gameWeekId } }).then((r) => r.data),
+  create: (payload) => api.post('/matches/game-week-teams/', payload).then((r) => r.data),
+  update: (id, payload) => api.patch(`/matches/game-week-teams/${id}/`, payload).then((r) => r.data),
+  remove: (id) => api.delete(`/matches/game-week-teams/${id}/`).then((r) => r.data),
 }
 
 export const statsApi = {

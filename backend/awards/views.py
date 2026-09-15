@@ -25,12 +25,15 @@ class WeeklyAwardsView(APIView):
                 ]
             )
             .prefetch_related('recipients__player')
-            .select_related('match')
-            .order_by('-match__match_date', 'award_type')
+            .select_related('match', 'game_week')
+            .order_by('-match__match_date', '-game_week__week_date', 'award_type')
         )
         match_id = request.query_params.get('match')
         if match_id:
             qs = qs.filter(match_id=match_id)
+        game_week_id = request.query_params.get('game_week')
+        if game_week_id:
+            qs = qs.filter(game_week_id=game_week_id)
         return Response(AwardSerializer(qs, many=True).data)
 
 
@@ -39,7 +42,7 @@ class MonthlyAwardsView(APIView):
 
     def get(self, request):
         qs = (
-            Award.objects.filter(match__isnull=True)
+            Award.objects.filter(match__isnull=True, game_week__isnull=True)
             .prefetch_related('recipients__player')
             .order_by('-year', '-month', 'award_type')
         )

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { matchesApi } from '../services/endpoints'
+import { gameWeeksApi, matchesApi } from '../services/endpoints'
 import { ErrorBanner, LoadingState, SectionTitle, EmptyState } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 
@@ -17,13 +17,18 @@ function myAvailability(match, playerId) {
 export default function MatchesPage() {
   const { isAdmin, user } = useAuth()
   const [matches, setMatches] = useState([])
+  const [gameWeeks, setGameWeeks] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState(null)
 
   async function load() {
-    const data = await matchesApi.list()
-    setMatches(unwrapList(data))
+    const [matchData, gameWeekData] = await Promise.all([
+      matchesApi.list(),
+      gameWeeksApi.list(),
+    ])
+    setMatches(unwrapList(matchData).filter((m) => !m.game_week))
+    setGameWeeks(unwrapList(gameWeekData))
   }
 
   useEffect(() => {
@@ -44,6 +49,11 @@ export default function MatchesPage() {
       setBusyId(null)
     }
   }
+
+  const rows = [
+    ...matches.map((m) => ({ kind: 'match', date: m.match_date, data: m })),
+    ...gameWeeks.map((gw) => ({ kind: 'gameWeek', date: gw.week_date, data: gw })),
+  ].sort((a, b) => b.date.localeCompare(a.date))
 
   return (
     <div className="space-y-4">
@@ -66,11 +76,36 @@ export default function MatchesPage() {
       <ErrorBanner message={error} />
       {loading ? (
         <LoadingState />
-      ) : matches.length === 0 ? (
+      ) : rows.length === 0 ? (
         <EmptyState>No matches yet.</EmptyState>
       ) : (
         <div className="space-y-3">
-          {matches.map((m) => {
+          {rows.map((row) => {
+            if (row.kind === 'gameWeek') {
+              const gw = row.data
+              return (
+                <Link
+                  key={`gw-${gw.id}`}
+                  to={isAdmin ? `/admin/game-weeks/${gw.id}` : `/game-weeks/${gw.id}`}
+                  className="card flex justify-between items-start gap-3"
+                >
+                  <div>
+                    <p className="font-semibold">{gw.week_date}</p>
+                    <p className="text-sm text-[var(--color-muted)]">
+                      {gw.status} · {gw.fixtures.length} {gw.fixtures.length === 1 ? 'fixture' : 'fixtures'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="display text-4xl text-[var(--color-lime)] leading-none">
+                      {gw.is_finalized ? gw.fixtures.reduce((sum, f) => sum + f.goals.length, 0) : '—'}
+                    </p>
+                    {gw.is_finalized && <p className="text-xs text-[var(--color-muted)]">goals</p>}
+                  </div>
+                </Link>
+              )
+            }
+
+            const m = row.data
             const openForRsvp = !m.is_finalized && m.status !== 'COMPLETED'
             const mine = myAvailability(m, user?.player_id)
             return (
