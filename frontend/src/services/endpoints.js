@@ -87,4 +87,6 @@ export const awardsApi = {
   confirm: (id) => api.post(`/awards/${id}/confirm/`).then((r) => r.data),
   setTotwRecipients: (id, playerIds) =>
     api.post(`/awards/${id}/set-totw/`, { player_ids: playerIds }).then((r) => r.data),
+  setPotwRecipients: (id, playerIds) =>
+    api.post(`/awards/${id}/set-potw/`, { player_ids: playerIds }).then((r) => r.data),
 }

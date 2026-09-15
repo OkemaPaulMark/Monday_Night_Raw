@@ -130,21 +130,21 @@ def generate_weekly_awards_for_game_week(game_week: GameWeek, *, confirm: bool =
     )
 
 
-@transaction.atomic
-def set_totw_recipients(award: Award, player_ids: list[int]) -> Award:
+def _set_manual_weekly_recipients(award: Award, player_ids: list[int], *, expected_type: str, label: str) -> Award:
     """
-    Manually override Team of the Week for a match or game week.
+    Manually override Player of the Week or Team of the Week for a match or
+    game week.
 
     Always available to admin, not just a fallback for missing data — the
-    automatic slot-filling is a starting point, not the final word. Slot
-    shape (2/3/2) isn't enforced here; admin has final say on the roster.
-    Players must have actually played that matchday / game week.
+    automatic calculation is a starting point, not the final word. TOTW's
+    slot shape (2/3/2) isn't enforced here; admin has final say on the
+    roster. Players must have actually played that matchday / game week.
     """
-    if award.award_type != Award.AwardType.TEAM_OF_THE_WEEK or (award.match is None and award.game_week is None):
-        raise ValidationError({'detail': "Only a match or game week's Team of the Week can be manually edited."})
+    if award.award_type != expected_type or (award.match is None and award.game_week is None):
+        raise ValidationError({'detail': f"Only a match or game week's {label} can be manually edited."})
 
     if len(set(player_ids)) != len(player_ids):
-        raise ValidationError({'detail': 'Duplicate players in Team of the Week selection.'})
+        raise ValidationError({'detail': f'Duplicate players in {label} selection.'})
 
     if award.match is not None:
         participant_ids = set(award.match.participants.values_list('player_id', flat=True))
@@ -173,6 +173,24 @@ def set_totw_recipients(award: Award, player_ids: list[int]) -> Award:
     award.is_confirmed = True
     award.save(update_fields=['is_confirmed', 'updated_at'])
     return award
+
+
+@transaction.atomic
+def set_totw_recipients(award: Award, player_ids: list[int]) -> Award:
+    return _set_manual_weekly_recipients(
+        award, player_ids,
+        expected_type=Award.AwardType.TEAM_OF_THE_WEEK,
+        label='Team of the Week',
+    )
+
+
+@transaction.atomic
+def set_potw_recipients(award: Award, player_ids: list[int]) -> Award:
+    return _set_manual_weekly_recipients(
+        award, player_ids,
+        expected_type=Award.AwardType.PLAYER_OF_THE_WEEK,
+        label='Player of the Week',
+    )
 
 
 @transaction.atomic

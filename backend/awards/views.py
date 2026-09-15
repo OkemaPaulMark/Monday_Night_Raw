@@ -9,6 +9,7 @@ from awards.serializers import AwardSerializer
 from awards.services.award_calculator import (
     confirm_weekly_award,
     generate_monthly_awards,
+    set_potw_recipients,
     set_totw_recipients,
 )
 
@@ -97,5 +98,27 @@ class SetTotwRecipientsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         set_totw_recipients(award, player_ids)
+        award.refresh_from_db()
+        return Response(AwardSerializer(award).data)
+
+
+class SetPotwRecipientsView(APIView):
+    """Manual override of a match/game week's Player of the Week — always
+    available to admin, not just a fallback for a disputed automatic pick."""
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def post(self, request, pk):
+        try:
+            award = Award.objects.get(pk=pk)
+        except Award.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        player_ids = request.data.get('player_ids')
+        if not isinstance(player_ids, list):
+            return Response(
+                {'detail': 'player_ids must be a list of player IDs.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        set_potw_recipients(award, player_ids)
         award.refresh_from_db()
         return Response(AwardSerializer(award).data)

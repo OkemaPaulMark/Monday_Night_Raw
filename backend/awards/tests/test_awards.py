@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from awards.models import Award
-from awards.services.award_calculator import generate_monthly_awards, set_totw_recipients
+from awards.services.award_calculator import generate_monthly_awards, set_potw_recipients, set_totw_recipients
 from matches.models import Match
 from matches.services import match_service
 from matches.tests.helpers import (
@@ -174,6 +174,50 @@ class AwardTests(TestCase):
         with self.assertRaises(ValidationError):
             set_totw_recipients(totw, [players[1].id, players[1].id])
 
+    def test_manual_potw_override(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        potw = Award.objects.get(match=match, award_type=Award.AwardType.PLAYER_OF_THE_WEEK)
+
+        # Override to a single different winner, not the automatic top scorer.
+        set_potw_recipients(potw, [players[2].id])
+        potw.refresh_from_db()
+
+        self.assertEqual(
+            list(potw.recipients.values_list('player_id', flat=True)),
+            [players[2].id],
+        )
+        self.assertTrue(potw.is_confirmed)
+
+    def test_manual_potw_override_supports_declared_tie(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        potw = Award.objects.get(match=match, award_type=Award.AwardType.PLAYER_OF_THE_WEEK)
+
+        tied_ids = [players[0].id, players[2].id]
+        set_potw_recipients(potw, tied_ids)
+        potw.refresh_from_db()
+
+        self.assertEqual(
+            list(potw.recipients.order_by('rank').values_list('player_id', flat=True)),
+            tied_ids,
+        )
+
+    def test_manual_potw_override_rejects_non_participant(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        potw = Award.objects.get(match=match, award_type=Award.AwardType.PLAYER_OF_THE_WEEK)
+        outsider = Player.objects.create(name='Never Played', position=Player.Position.STRIKER)
+        with self.assertRaises(ValidationError):
+            set_potw_recipients(potw, [outsider.id])
+
+    def test_manual_potw_override_rejects_wrong_award_type(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        totw = Award.objects.get(match=match, award_type=Award.AwardType.TEAM_OF_THE_WEEK)
+        with self.assertRaises(ValidationError):
+            set_potw_recipients(totw, [players[1].id])
+
     def test_monthly_awards(self):
         match, players = create_match_with_players()
         complete_match_with_goals(match, players)
@@ -258,3 +302,17 @@ class MatchApiWorkflowTests(TestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data['recipients']), 2)
+
+    def test_set_potw_api(self):
+        match, players = create_match_with_players()
+        complete_match_with_goals(match, players)
+        potw = Award.objects.get(match=match, award_type=Award.AwardType.PLAYER_OF_THE_WEEK)
+
+        res = self.client.post(
+            f'/api/awards/{potw.id}/set-potw/',
+            {'player_ids': [players[7].id]},
+            format='json',
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data['recipients']), 1)
+        self.assertEqual(res.data['recipients'][0]['player']['id'], players[7].id)

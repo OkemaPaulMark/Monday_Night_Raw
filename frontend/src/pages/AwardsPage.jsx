@@ -59,11 +59,11 @@ export default function AwardsPage() {
   const [loading, setLoading] = useState(true)
   const [selectedPlayerId, setSelectedPlayerId] = useState(null)
   const [selectedWeekKey, setSelectedWeekKey] = useState('')
-  const [editingTotw, setEditingTotw] = useState(false)
+  const [editingKind, setEditingKind] = useState(null) // null | 'potw' | 'totw'
   const [matchParticipants, setMatchParticipants] = useState([])
   const [manualIds, setManualIds] = useState([])
-  const [totwError, setTotwError] = useState('')
-  const [totwSaving, setTotwSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -120,14 +120,15 @@ export default function AwardsPage() {
   const totw = selectedGroup?.awards.find((a) => a.award_type === 'TOTW')
 
   useEffect(() => {
-    setEditingTotw(false)
-    setTotwError('')
+    setEditingKind(null)
+    setEditError('')
   }, [selectedWeekKey])
 
-  async function startEditTotw() {
-    setTotwError('')
-    setManualIds((totw?.recipients || []).map((r) => r.player.id))
-    setEditingTotw(true)
+  async function startEdit(kind) {
+    setEditError('')
+    const award = kind === 'potw' ? potw : totw
+    setManualIds((award?.recipients || []).map((r) => r.player.id))
+    setEditingKind(kind)
     try {
       if (selectedGroup.matchId) {
         const m = await matchesApi.get(selectedGroup.matchId)
@@ -143,7 +144,7 @@ export default function AwardsPage() {
         setMatchParticipants([...byId.values()])
       }
     } catch (e) {
-      setTotwError(e.message)
+      setEditError(e.message)
     }
   }
 
@@ -153,17 +154,21 @@ export default function AwardsPage() {
     )
   }
 
-  async function saveManualTotw() {
-    setTotwSaving(true)
-    setTotwError('')
+  async function saveManualEdit() {
+    setEditSaving(true)
+    setEditError('')
     try {
-      await awardsApi.setTotwRecipients(totw.id, manualIds)
+      if (editingKind === 'potw') {
+        await awardsApi.setPotwRecipients(potw.id, manualIds)
+      } else {
+        await awardsApi.setTotwRecipients(totw.id, manualIds)
+      }
       await load()
-      setEditingTotw(false)
+      setEditingKind(null)
     } catch (e) {
-      setTotwError(e.message)
+      setEditError(e.message)
     } finally {
-      setTotwSaving(false)
+      setEditSaving(false)
     }
   }
 
@@ -224,30 +229,79 @@ export default function AwardsPage() {
           <EmptyState>No weekly awards yet.</EmptyState>
         ) : (
           <div className="space-y-3">
-            <div className="card">
-              <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between gap-2">
                 <h3 className="font-bold">Player of the Week</h3>
-                {potw?.is_confirmed ? <span className="badge">Confirmed</span> : null}
+                <div className="flex items-center gap-2">
+                  {potw?.is_confirmed ? <span className="badge">Confirmed</span> : null}
+                  {isAdmin && potw && editingKind !== 'potw' && (
+                    <button type="button" className="btn btn-secondary" style={{ minHeight: 32, padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={() => startEdit('potw')}>
+                      Edit
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="text-xs text-[var(--color-muted)] mb-3">
+              <p className="text-xs text-[var(--color-muted)] -mt-2">
                 {formatMatchDay(selectedGroup.matchDate)}
               </p>
-              <div className="space-y-2">
-                {(potw?.recipients || []).map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="player-chip"
-                    onClick={() => setSelectedPlayerId(r.player.id)}
-                  >
-                    <PlayerAvatar player={r.player} size={40} />
-                    <div className="min-w-0 text-left">
-                      <p className="font-semibold truncate">{r.player.name}</p>
-                    </div>
-                  </button>
-                ))}
-                {!potw && <p className="text-sm text-[var(--color-muted)]">No POTW recorded.</p>}
-              </div>
+
+              {editingKind === 'potw' ? (
+                <div className="space-y-3">
+                  <ErrorBanner message={editError} />
+                  <p className="text-sm text-[var(--color-muted)]">
+                    Pick who won Player of the Week for this match day. Tap more
+                    than one to declare a tie — order sets the rank shown.
+                  </p>
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {matchParticipants.map((p) => {
+                      const idx = manualIds.indexOf(p.id)
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className={`player-chip ${idx >= 0 ? 'selected' : ''}`}
+                          onClick={() => toggleManualPlayer(p.id)}
+                        >
+                          <PlayerAvatar player={p} size={36} />
+                          <div className="min-w-0 flex-1 text-left">
+                            <p className="font-semibold truncate">{p.name}</p>
+                            <p className="text-xs text-[var(--color-muted)]">{positionLabel(p.position)}</p>
+                          </div>
+                          {idx >= 0 && <span className="badge">#{idx + 1}</span>}
+                        </button>
+                      )
+                    })}
+                    {matchParticipants.length === 0 && (
+                      <p className="text-sm text-[var(--color-muted)]">No participants recorded for this match.</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className="btn btn-secondary w-full" onClick={() => setEditingKind(null)} disabled={editSaving}>
+                      Cancel
+                    </button>
+                    <button type="button" className="btn btn-primary w-full" onClick={saveManualEdit} disabled={editSaving || manualIds.length === 0}>
+                      {editSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(potw?.recipients || []).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="player-chip"
+                      onClick={() => setSelectedPlayerId(r.player.id)}
+                    >
+                      <PlayerAvatar player={r.player} size={40} />
+                      <div className="min-w-0 text-left">
+                        <p className="font-semibold truncate">{r.player.name}</p>
+                      </div>
+                    </button>
+                  ))}
+                  {!potw && <p className="text-sm text-[var(--color-muted)]">No POTW recorded.</p>}
+                </div>
+              )}
             </div>
 
             {totw ? (
@@ -256,17 +310,17 @@ export default function AwardsPage() {
                   <h3 className="font-bold">Team of the Week</h3>
                   <div className="flex items-center gap-2">
                     <span className="badge">{totw.recipients.length}-a-side XI</span>
-                    {isAdmin && !editingTotw && (
-                      <button type="button" className="btn btn-secondary" style={{ minHeight: 32, padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={startEditTotw}>
+                    {isAdmin && editingKind !== 'totw' && (
+                      <button type="button" className="btn btn-secondary" style={{ minHeight: 32, padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={() => startEdit('totw')}>
                         Edit lineup
                       </button>
                     )}
                   </div>
                 </div>
 
-                {editingTotw ? (
+                {editingKind === 'totw' ? (
                   <div className="space-y-3">
-                    <ErrorBanner message={totwError} />
+                    <ErrorBanner message={editError} />
                     <p className="text-sm text-[var(--color-muted)]">
                       Pick who's in the Team of the Week for this match day. Tap in
                       the order you want them ranked.
@@ -295,11 +349,11 @@ export default function AwardsPage() {
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" className="btn btn-secondary w-full" onClick={() => setEditingTotw(false)} disabled={totwSaving}>
+                      <button type="button" className="btn btn-secondary w-full" onClick={() => setEditingKind(null)} disabled={editSaving}>
                         Cancel
                       </button>
-                      <button type="button" className="btn btn-primary w-full" onClick={saveManualTotw} disabled={totwSaving}>
-                        {totwSaving ? 'Saving…' : 'Save lineup'}
+                      <button type="button" className="btn btn-primary w-full" onClick={saveManualEdit} disabled={editSaving}>
+                        {editSaving ? 'Saving…' : 'Save lineup'}
                       </button>
                     </div>
                   </div>
