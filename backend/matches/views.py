@@ -148,7 +148,7 @@ class GameWeekViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'week_date']
     ordering_fields = ['week_date', 'created_at']
     ordering = ['-week_date', '-id']
-    http_method_names = ['get', 'post', 'head', 'options']
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -156,7 +156,7 @@ class GameWeekViewSet(viewsets.ModelViewSet):
         return GameWeekSerializer
 
     def get_permissions(self):
-        if self.action in {'create', 'finalize', 'reopen'}:
+        if self.action in {'create', 'finalize', 'reopen', 'destroy'}:
             return [IsAuthenticated(), IsAdminRole()]
         return [IsAuthenticated()]
 

@@ -49,6 +49,7 @@ export const matchesApi = {
     }).then((r) => r.data),
   finalize: (id) => api.post(`/matches/${id}/finalize/`).then((r) => r.data),
   reopen: (id) => api.post(`/matches/${id}/reopen/`).then((r) => r.data),
+  remove: (id) => api.delete(`/matches/${id}/`).then((r) => r.data),
   getAvailability: (id) => api.get(`/matches/${id}/availability/`).then((r) => r.data),
   setAvailability: (id, status, player_id) =>
     api
@@ -62,6 +63,7 @@ export const gameWeeksApi = {
   create: (payload) => api.post('/matches/game-weeks/', payload).then((r) => r.data),
   finalize: (id) => api.post(`/matches/game-weeks/${id}/finalize/`).then((r) => r.data),
   reopen: (id) => api.post(`/matches/game-weeks/${id}/reopen/`).then((r) => r.data),
+  remove: (id) => api.delete(`/matches/game-weeks/${id}/`).then((r) => r.data),
 }
 
 export const gameWeekTeamsApi = {
