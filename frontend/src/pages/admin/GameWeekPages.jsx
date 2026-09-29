@@ -32,11 +32,19 @@ function TeamEditor({ team, players, gameWeekId, onSaved }) {
     setError('')
     try {
       if (isNew) {
+        // This instance always represents "add a new team" (team prop is
+        // null) — after creating one, the parent's reload() will render a
+        // fresh TeamEditor for it plus a new blank "add another" instance.
+        // Don't flip this instance to the non-editing view: it renders
+        // `team.name`/`team.players`, which would crash since `team` here
+        // is still null.
         await gameWeekTeamsApi.create({ game_week: gameWeekId, name, player_ids: memberIds })
+        setName('')
+        setMemberIds([])
       } else {
         await gameWeekTeamsApi.update(team.id, { name, player_ids: memberIds })
+        setEditing(false)
       }
-      setEditing(false)
       await onSaved()
     } catch (e) {
       setError(e.message)
