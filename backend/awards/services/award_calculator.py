@@ -6,7 +6,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from rest_framework.exceptions import ValidationError
 
 from awards.models import Award, AwardRecipient
@@ -17,7 +17,6 @@ from stats.services.statistics_calculator import (
     match_player_performance,
 )
 
-TOTW_SIZE = 7
 TOTW_SLOTS = {
     Player.Position.DEFENDER: 2,
     Player.Position.MIDFIELDER: 3,
@@ -241,11 +240,17 @@ def generate_monthly_awards(year: int, month: int) -> list[Award]:
         for player in Player.objects.filter(participations__match=match).distinct():
             performance[player.id] += match_player_performance(match, player)
 
+    # A weekly POTW is tied to *either* a standalone match or a game week
+    # (mutually exclusive FKs) — has to check both, or POTW wins earned
+    # through a game week silently don't count toward "Most POTW" that month.
     potw_counts = (
         AwardRecipient.objects.filter(
             award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
-            award__match__in=matches,
             award__is_confirmed=True,
+        )
+        .filter(
+            Q(award__match__in=matches)
+            | Q(award__game_week__week_date__year=year, award__game_week__week_date__month=month)
         )
         .values('player_id')
         .annotate(c=Count('id'))
@@ -269,13 +274,16 @@ def generate_monthly_awards(year: int, month: int) -> list[Award]:
             month=month,
             is_confirmed=True,
         )
-        for rank, pid in enumerate(winners, start=1):
+        # All `winners` tied on the same `best` value by construction — one
+        # shared rank, not sequential #1/#2/#3, which would misrepresent a
+        # tie as a real ordering.
+        for pid in winners:
             score = metric.get(pid)
             AwardRecipient.objects.create(
                 award=award,
                 player_id=pid,
                 performance_score=Decimal(score) if score is not None else None,
-                rank=rank,
+                rank=1,
             )
         created.append(award)
         return award

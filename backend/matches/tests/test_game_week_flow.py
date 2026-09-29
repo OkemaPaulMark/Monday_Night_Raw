@@ -11,7 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from awards.models import Award
-from awards.services.award_calculator import set_totw_recipients
+from awards.services.award_calculator import generate_monthly_awards, set_totw_recipients
 from matches.models import GameWeek, Match
 from matches.services import match_service
 from matches.tests.helpers import create_admin, create_player_user
@@ -173,6 +173,30 @@ class GameWeekServiceTests(TestCase):
         outsider = Player.objects.create(name='Never Played', position=Player.Position.STRIKER)
         with self.assertRaises(ValidationError):
             set_totw_recipients(totw, [outsider.id])
+
+    def test_game_week_potw_counts_toward_monthly_most_potw(self):
+        """
+        A weekly POTW earned through a game week has award.match=None (it
+        uses game_week instead) — the monthly "Most POTW" tally has to check
+        both FKs or these wins silently don't count.
+        """
+        striker_a = self.rosters['A'][4]
+        self._add_fixture('A', 'B', 3, 0, [
+            {'scorer_id': striker_a.id, 'assister_id': None},
+            {'scorer_id': striker_a.id, 'assister_id': None},
+            {'scorer_id': striker_a.id, 'assister_id': None},
+        ])
+        match_service.finalize_game_week(self.game_week)
+
+        potw = Award.objects.get(game_week=self.game_week, award_type=Award.AwardType.PLAYER_OF_THE_WEEK)
+        self.assertEqual(list(potw.recipients.values_list('player_id', flat=True)), [striker_a.id])
+
+        monthly = generate_monthly_awards(self.game_week.week_date.year, self.game_week.week_date.month)
+        most_potw = next(a for a in monthly if a.award_type == Award.AwardType.MOST_POTW)
+        self.assertEqual(
+            list(most_potw.recipients.values_list('player_id', flat=True)),
+            [striker_a.id],
+        )
 
 
 class GameWeekApiTests(TestCase):
