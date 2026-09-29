@@ -173,7 +173,9 @@ Differences from the dev `docker-compose.yml`:
   the static PWA bundle, then a plain `nginx:alpine` (~75MB image) serves it —
   no Node/Vite dev server running in production. Nginx also serves
   `/static/` and `/media/` directly from shared volumes and reverse-proxies
-  `/api/` and `/admin/` to the backend, so only port 80 needs to be public.
+  `/api/` and `/django-admin/` to the backend, so only port 80 needs to be
+  public. (Django's admin panel is mounted at `/django-admin/`, not
+  `/admin/` — that path is owned by the frontend's own admin section.)
 - **Backend** runs `gunicorn` with a **single worker process** (`--workers 1
   --threads 4`) instead of `runserver`. SQLite allows only one writer at a
   time, so one process avoids cross-process lock contention on the db file;

@@ -5,7 +5,12 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # Not "admin/" — the frontend's own admin section lives under that path
+    # client-side (/admin, /admin/players, /admin/matches/...), and nginx
+    # proxies /admin/ straight to Django in production. A full page load on
+    # one of the frontend's admin URLs (refresh, bookmark, shared link)
+    # would otherwise be intercepted before ever reaching the React app.
+    path('django-admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/players/', include('players.urls')),
     path('api/matches/', include('matches.urls')),
