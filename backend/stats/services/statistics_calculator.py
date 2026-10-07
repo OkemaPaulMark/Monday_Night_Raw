@@ -229,31 +229,20 @@ def dashboard_summary() -> dict:
         if recipients:
             latest_match_potw = ', '.join(r.player.name for r in recipients)
 
-    # Current month's POTM — most recent confirmed award
+    # POTM — always show the most recently completed month's winner,
+    # never the current month (which isn't over yet).
     from django.utils import timezone
     now = timezone.now()
     potm_recipient = (
         AwardRecipient.objects.filter(
             award__award_type=Award.AwardType.PLAYER_OF_THE_MONTH,
             award__is_confirmed=True,
-            award__year=now.year,
-            award__month=now.month,
         )
+        .exclude(award__year=now.year, award__month=now.month)
         .select_related('player', 'award')
-        .order_by('rank', 'id')
+        .order_by('-award__year', '-award__month', 'rank', 'id')
         .first()
     )
-    # Fall back to the most recent month that has a confirmed POTM
-    if potm_recipient is None:
-        potm_recipient = (
-            AwardRecipient.objects.filter(
-                award__award_type=Award.AwardType.PLAYER_OF_THE_MONTH,
-                award__is_confirmed=True,
-            )
-            .select_related('player', 'award')
-            .order_by('-award__year', '-award__month', 'rank', 'id')
-            .first()
-        )
 
     potm_data = None
     if potm_recipient:

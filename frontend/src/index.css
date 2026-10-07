@@ -704,3 +704,57 @@ table.data th {
   height: 28px;
   background: rgba(255, 255, 255, 0.12);
 }
+
+/* ── POTM pending placeholder ─────────────────────────────────────── */
+.potm-pending-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px dashed rgba(240, 193, 75, 0.3);
+  background: linear-gradient(135deg, rgba(15, 47, 36, 0.6) 0%, rgba(11, 61, 46, 0.4) 100%);
+  padding: 1.4rem 1.1rem;
+}
+
+.potm-pending-glow {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 160px;
+  height: 160px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(240, 193, 75, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.potm-pending-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.potm-pending-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  opacity: 0.45;
+  flex-shrink: 0;
+  filter: grayscale(0.4);
+}
+
+.potm-pending-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(240, 193, 75, 0.5);
+  margin: 0 0 0.3rem;
+}
+
+.potm-pending-sub {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin: 0;
+  line-height: 1.4;
+}

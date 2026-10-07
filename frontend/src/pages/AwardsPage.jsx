@@ -66,8 +66,11 @@ export default function AwardsPage() {
   const [editError, setEditError] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
+  // Default to previous month — current month's POTM isn't awarded until it ends
+  const defaultMonth = now.getMonth() === 0 ? 12 : now.getMonth()
+  const defaultYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+  const [year, setYear] = useState(defaultYear)
+  const [month, setMonth] = useState(defaultMonth)
   const [editingPotm, setEditingPotm] = useState(false)
   const [monthPlayers, setMonthPlayers] = useState([])
   const [potmManualIds, setPotmManualIds] = useState([])
@@ -180,6 +183,9 @@ export default function AwardsPage() {
   }
 
   const potmAward = monthly.find((a) => a.award_type === 'POTM_MONTH')
+  const nowDate = new Date()
+  const isCurrentMonth = year === nowDate.getFullYear() && month === nowDate.getMonth() + 1
+  const nonPotm = monthly.filter((a) => a.award_type !== 'POTM_MONTH')
 
   async function startPotmEdit() {
     setPotmEditError('')
@@ -411,12 +417,9 @@ export default function AwardsPage() {
             )}
           </div>
         )
-      ) : monthly.length === 0 ? (
-        <EmptyState>No monthly awards yet.</EmptyState>
       ) : (
         <div className="space-y-3">
-          {/* POTM hero card — rendered first, full-width */}
-          {potmAward && (
+          {potmAward ? (
             editingPotm ? (
               <div className="card space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -465,10 +468,27 @@ export default function AwardsPage() {
                 onEdit={isAdmin ? startPotmEdit : undefined}
               />
             )
+          ) : (
+            <div className="potm-pending-card">
+              <div className="potm-pending-glow" />
+              <div className="potm-pending-inner">
+                <span className="potm-pending-icon">🏆</span>
+                <div>
+                  <p className="potm-pending-title">Player of the Month</p>
+                  <p className="potm-pending-sub">
+                    {isCurrentMonth
+                      ? 'Still being decided — check back when the month ends.'
+                      : 'No award recorded for this month.'}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
 
-          {/* Other monthly awards — Golden Boot, Top Assister, Most POTW */}
-          {monthly.filter((a) => a.award_type !== 'POTM_MONTH').map((award) => {
+          {nonPotm.length === 0 && !isCurrentMonth && (
+            <EmptyState>No awards recorded for this month.</EmptyState>
+          )}
+          {nonPotm.map((award) => {
             const statLabel = {
               GOLDEN_BOOT: 'goals',
               TOP_ASSISTER: 'assists',
