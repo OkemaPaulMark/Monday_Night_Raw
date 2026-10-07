@@ -9,6 +9,7 @@ from awards.models import Award, AwardRecipient
 from matches.models import GoalEvent, Match, MatchParticipant
 from players.models import Player
 from stats.scoring import calculate_match_performance_score, performance_to_rating
+from django.db.models import Q
 
 
 def _defensive_stats(match: Match, player: Player) -> tuple[bool | None, int | None]:
@@ -197,10 +198,6 @@ def dashboard_summary() -> dict:
         ordered = sorted(board, key=lambda r: r[metric], reverse=True)
         return ordered[0] if ordered else None
 
-    # Sorted in Python, not the DB: `match` and `game_week` are mutually
-    # exclusive nullable FKs, so ordering by either column directly would
-    # push NULLs to one end (SQLite: last on DESC) regardless of which
-    # award type is actually most recent.
     potw_candidates = (
         AwardRecipient.objects.filter(
             award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
@@ -232,6 +229,63 @@ def dashboard_summary() -> dict:
         if recipients:
             latest_match_potw = ', '.join(r.player.name for r in recipients)
 
+    # Current month's POTM — most recent confirmed award
+    from django.utils import timezone
+    now = timezone.now()
+    potm_recipient = (
+        AwardRecipient.objects.filter(
+            award__award_type=Award.AwardType.PLAYER_OF_THE_MONTH,
+            award__is_confirmed=True,
+            award__year=now.year,
+            award__month=now.month,
+        )
+        .select_related('player', 'award')
+        .order_by('rank', 'id')
+        .first()
+    )
+    # Fall back to the most recent month that has a confirmed POTM
+    if potm_recipient is None:
+        potm_recipient = (
+            AwardRecipient.objects.filter(
+                award__award_type=Award.AwardType.PLAYER_OF_THE_MONTH,
+                award__is_confirmed=True,
+            )
+            .select_related('player', 'award')
+            .order_by('-award__year', '-award__month', 'rank', 'id')
+            .first()
+        )
+
+    potm_data = None
+    if potm_recipient:
+        p = potm_recipient.player
+        award = potm_recipient.award
+        yr, mo = award.year, award.month
+        month_matches = Match.objects.filter(
+            finalized_at__isnull=False,
+            match_date__year=yr,
+            match_date__month=mo,
+        )
+        month_goals = GoalEvent.objects.filter(match__in=month_matches, scorer=p).count()
+        month_assists = GoalEvent.objects.filter(match__in=month_matches, assister=p).count()
+        month_potw = AwardRecipient.objects.filter(
+            player=p,
+            award__award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
+            award__is_confirmed=True,
+        ).filter(
+            Q(award__match__in=month_matches)
+            | Q(award__game_week__week_date__year=yr, award__game_week__week_date__month=mo)
+        ).count()
+        potm_data = {
+            'player_id': p.id,
+            'name': p.name,
+            'profile_photo': p.profile_photo.url if p.profile_photo else None,
+            'year': yr,
+            'month': mo,
+            'goals': month_goals,
+            'assists': month_assists,
+            'potw': month_potw,
+        }
+
     return {
         'total_players': players.count(),
         'total_matches': matches.count(),
@@ -261,4 +315,5 @@ def dashboard_summary() -> dict:
         'top_assister': top('assists'),
         'top_rated': top('rating'),
         'most_potw': top('potw'),
+        'potm': potm_data,
     }

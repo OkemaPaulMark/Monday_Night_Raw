@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { gameWeeksApi, matchesApi, playersApi, statsApi } from '../../services/endpoints'
 import { ErrorBanner, LoadingState, SectionTitle, StatTile } from '../../components/ui'
 import PlayerAvatar from '../../components/PlayerAvatar'
+import PotmCard from '../../components/PotmCard'
 
 function unwrapList(data) {
   if (Array.isArray(data)) return data
@@ -66,11 +67,12 @@ export function AdminDashboardPage() {
             </div>
           )}
 
+          <PotmCard potm={data.potm} />
+
           <div className="grid gap-3">
             {[
               ['Top scorer', data.top_scorer, 'goals'],
               ['Top assister', data.top_assister, 'assists'],
-              ['Most POTW', data.most_potw, 'potw'],
             ].map(([label, row, metric]) => (
               <div key={label} className="card flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">

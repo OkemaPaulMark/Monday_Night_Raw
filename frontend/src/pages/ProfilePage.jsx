@@ -29,6 +29,10 @@ export default function ProfilePage({ self = false }) {
   const [editPosition, setEditPosition] = useState('')
   const [editError, setEditError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [adminEditingPosition, setAdminEditingPosition] = useState(false)
+  const [adminPosition, setAdminPosition] = useState('')
+  const [adminPositionError, setAdminPositionError] = useState('')
+  const [adminPositionSaving, setAdminPositionSaving] = useState(false)
 
   const canUpload =
     Boolean(playerId) &&
@@ -89,6 +93,20 @@ export default function ProfilePage({ self = false }) {
     }
   }
 
+  async function saveAdminPosition() {
+    setAdminPositionSaving(true)
+    setAdminPositionError('')
+    try {
+      await playersApi.update(playerId, { position: adminPosition || null })
+      await load()
+      setAdminEditingPosition(false)
+    } catch (err) {
+      setAdminPositionError(err.message)
+    } finally {
+      setAdminPositionSaving(false)
+    }
+  }
+
   async function onPhotoChange(e) {
     const file = e.target.files?.[0]
     if (!file || !playerId) return
@@ -122,7 +140,7 @@ export default function ProfilePage({ self = false }) {
             </p>
           )}
           {canUpload && !self && (
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
               <input
                 ref={fileRef}
                 type="file"
@@ -139,6 +157,37 @@ export default function ProfilePage({ self = false }) {
               >
                 {uploading ? 'Uploading…' : player?.profile_photo ? 'Change photo' : 'Upload photo'}
               </button>
+              {!adminEditingPosition ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ minHeight: 40, padding: '0.4rem 0.85rem' }}
+                  onClick={() => { setAdminPosition(player?.position || ''); setAdminPositionError(''); setAdminEditingPosition(true) }}
+                >
+                  Edit position
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <ErrorBanner message={adminPositionError} />
+                  <select
+                    value={adminPosition}
+                    onChange={(e) => setAdminPosition(e.target.value)}
+                  >
+                    <option value="">Not set</option>
+                    {POSITIONS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className="btn btn-secondary w-full" onClick={() => setAdminEditingPosition(false)} disabled={adminPositionSaving}>
+                      Cancel
+                    </button>
+                    <button type="button" className="btn btn-primary w-full" onClick={saveAdminPosition} disabled={adminPositionSaving}>
+                      {adminPositionSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {self && (

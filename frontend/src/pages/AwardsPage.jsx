@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { awardsApi, gameWeeksApi, matchesApi } from '../services/endpoints'
+import { awardsApi, gameWeeksApi, matchesApi, playersApi } from '../services/endpoints'
 import { useAuth } from '../context/AuthContext'
 import { ErrorBanner, LoadingState, SectionTitle, EmptyState } from '../components/ui'
 import TeamOfTheWeekFormation from '../components/TeamOfTheWeekFormation'
 import PlayerStatsModal from '../components/PlayerStatsModal'
 import PlayerAvatar from '../components/PlayerAvatar'
+import PotmCard from '../components/PotmCard'
 import { POSITIONS } from '../constants'
 
 function positionLabel(value) {
@@ -67,6 +68,11 @@ export default function AwardsPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
+  const [editingPotm, setEditingPotm] = useState(false)
+  const [monthPlayers, setMonthPlayers] = useState([])
+  const [potmManualIds, setPotmManualIds] = useState([])
+  const [potmEditError, setPotmEditError] = useState('')
+  const [potmSaving, setPotmSaving] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -87,6 +93,7 @@ export default function AwardsPage() {
 
   useEffect(() => {
     load()
+    setEditingPotm(false)
   }, [year, month])
 
   const weeklyGroups = useMemo(() => groupWeeklyByMatch(weekly), [weekly])
@@ -169,6 +176,41 @@ export default function AwardsPage() {
       setEditError(e.message)
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  const potmAward = monthly.find((a) => a.award_type === 'POTM_MONTH')
+
+  async function startPotmEdit() {
+    setPotmEditError('')
+    setPotmManualIds((potmAward?.recipients || []).map((r) => r.player.id))
+    try {
+      const all = await playersApi.list({ is_active: true })
+      const allList = Array.isArray(all) ? all : (all?.results || [])
+      setMonthPlayers(allList)
+    } catch (e) {
+      setPotmEditError(e.message)
+    }
+    setEditingPotm(true)
+  }
+
+  function togglePotmPlayer(playerId) {
+    setPotmManualIds((prev) =>
+      prev.includes(playerId) ? prev.filter((x) => x !== playerId) : [...prev, playerId],
+    )
+  }
+
+  async function savePotmEdit() {
+    setPotmSaving(true)
+    setPotmEditError('')
+    try {
+      await awardsApi.setPotmRecipients(potmAward.id, potmManualIds)
+      await load()
+      setEditingPotm(false)
+    } catch (e) {
+      setPotmEditError(e.message)
+    } finally {
+      setPotmSaving(false)
     }
   }
 
@@ -373,34 +415,121 @@ export default function AwardsPage() {
         <EmptyState>No monthly awards yet.</EmptyState>
       ) : (
         <div className="space-y-3">
-          {monthly.map((award) => (
-            <div key={award.id} className="card">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="font-bold">{award.award_type_display}</h3>
-                {award.is_confirmed ? <span className="badge">Confirmed</span> : <span className="badge">Pending</span>}
-              </div>
-              <p className="text-xs text-[var(--color-muted)] mt-1">
-                {award.year}-{String(award.month).padStart(2, '0')}
-              </p>
-              <div className="mt-3 space-y-2">
-                {award.recipients.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="player-chip"
-                    onClick={() => setSelectedPlayerId(r.player.id)}
-                  >
-                    <PlayerAvatar player={r.player} size={40} />
-                    <div className="min-w-0 text-left flex-1">
-                      <p className="font-semibold truncate">
-                        {r.rank ? `#${r.rank} ` : ''}{r.player.name}
-                      </p>
-                    </div>
+          {/* POTM hero card — rendered first, full-width */}
+          {potmAward && (
+            editingPotm ? (
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-bold">Player of the Month</h3>
+                  <span className="badge">{potmAward.year}-{String(potmAward.month).padStart(2, '0')}</span>
+                </div>
+                <ErrorBanner message={potmEditError} />
+                <p className="text-sm text-[var(--color-muted)]">
+                  Pick who won Player of the Month. Tap more than one to declare a tie.
+                </p>
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {monthPlayers.map((p) => {
+                    const idx = potmManualIds.indexOf(p.id)
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`player-chip ${idx >= 0 ? 'selected' : ''}`}
+                        onClick={() => togglePotmPlayer(p.id)}
+                      >
+                        <PlayerAvatar player={p} size={36} />
+                        <div className="min-w-0 flex-1 text-left">
+                          <p className="font-semibold truncate">{p.name}</p>
+                        </div>
+                        {idx >= 0 && <span className="badge">#{idx + 1}</span>}
+                      </button>
+                    )
+                  })}
+                  {monthPlayers.length === 0 && (
+                    <p className="text-sm text-[var(--color-muted)]">No players found for this month.</p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" className="btn btn-secondary w-full" onClick={() => setEditingPotm(false)} disabled={potmSaving}>
+                    Cancel
                   </button>
-                ))}
+                  <button type="button" className="btn btn-primary w-full" onClick={savePotmEdit} disabled={potmSaving || potmManualIds.length === 0}>
+                    {potmSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ) : (
+              <PotmCard
+                award={potmAward}
+                avatarSize={110}
+                onEdit={isAdmin ? startPotmEdit : undefined}
+              />
+            )
+          )}
+
+          {/* Other monthly awards — Golden Boot, Top Assister, Most POTW */}
+          {monthly.filter((a) => a.award_type !== 'POTM_MONTH').map((award) => {
+            const statLabel = {
+              GOLDEN_BOOT: 'goals',
+              TOP_ASSISTER: 'assists',
+              MOST_POTW: 'POTW',
+            }[award.award_type]
+
+            const rankGroups = []
+            for (const r of award.recipients) {
+              const last = rankGroups[rankGroups.length - 1]
+              if (last && last.rank === r.rank) {
+                last.players.push(r)
+              } else {
+                rankGroups.push({ rank: r.rank, players: [r] })
+              }
+            }
+            let displayRank = 1
+            const rankDisplay = []
+            for (const group of rankGroups) {
+              for (const r of group.players) {
+                rankDisplay.push({ recipient: r, label: displayRank })
+              }
+              displayRank += group.players.length
+            }
+
+            return (
+              <div key={award.id} className="card">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-bold">{award.award_type_display}</h3>
+                  {award.is_confirmed
+                    ? <span className="badge">Confirmed</span>
+                    : <span className="badge">Pending</span>}
+                </div>
+                <p className="text-xs text-[var(--color-muted)] mt-1">
+                  {award.year}-{String(award.month).padStart(2, '0')}
+                </p>
+                <div className="mt-3 space-y-2">
+                  {rankDisplay.map(({ recipient: r, label }) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="player-chip"
+                      onClick={() => setSelectedPlayerId(r.player.id)}
+                    >
+                      <PlayerAvatar player={r.player} size={40} />
+                      <div className="min-w-0 text-left flex-1">
+                        <p className="font-semibold truncate">{label}. {r.player.name}</p>
+                      </div>
+                      {statLabel && r.stat_value != null && (
+                        <span className="display text-xl text-[var(--color-gold)] shrink-0">
+                          {r.stat_value} <span className="text-xs text-[var(--color-muted)]">{statLabel}</span>
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  {award.recipients.length === 0 && (
+                    <p className="text-sm text-[var(--color-muted)]">No recipients recorded.</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { statsApi } from '../services/endpoints'
 import { ErrorBanner, LoadingState, SectionTitle, StatTile } from '../components/ui'
 import PlayerAvatar from '../components/PlayerAvatar'
+import PotmCard from '../components/PotmCard'
 import { useAuth } from '../context/AuthContext'
 
 function LeaderCard({ label, row, metric }) {
@@ -76,6 +77,8 @@ export default function DashboardPage() {
           </Link>
         </div>
       )}
+
+      <PotmCard potm={data.potm} />
 
       <div className="grid gap-3">
         <LeaderCard label="Top scorer" row={data.top_scorer} metric="goals" />

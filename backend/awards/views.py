@@ -9,6 +9,7 @@ from awards.serializers import AwardSerializer
 from awards.services.award_calculator import (
     confirm_weekly_award,
     generate_monthly_awards,
+    set_potm_recipients,
     set_potw_recipients,
     set_totw_recipients,
 )
@@ -120,5 +121,26 @@ class SetPotwRecipientsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         set_potw_recipients(award, player_ids)
+        award.refresh_from_db()
+        return Response(AwardSerializer(award).data)
+
+
+class SetPotmRecipientsView(APIView):
+    """Manual override of Player of the Month recipients."""
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def post(self, request, pk):
+        try:
+            award = Award.objects.get(pk=pk)
+        except Award.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        player_ids = request.data.get('player_ids')
+        if not isinstance(player_ids, list):
+            return Response(
+                {'detail': 'player_ids must be a list of player IDs.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        set_potm_recipients(award, player_ids)
         award.refresh_from_db()
         return Response(AwardSerializer(award).data)

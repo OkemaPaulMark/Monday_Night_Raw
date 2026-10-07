@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     ConfirmAwardView,
     MonthlyAwardsView,
+    SetPotmRecipientsView,
     SetPotwRecipientsView,
     SetTotwRecipientsView,
     WeeklyAwardsView,
@@ -14,4 +15,5 @@ urlpatterns = [
     path('<int:pk>/confirm/', ConfirmAwardView.as_view(), name='awards-confirm'),
     path('<int:pk>/set-totw/', SetTotwRecipientsView.as_view(), name='awards-set-totw'),
     path('<int:pk>/set-potw/', SetPotwRecipientsView.as_view(), name='awards-set-potw'),
+    path('<int:pk>/set-potm/', SetPotmRecipientsView.as_view(), name='awards-set-potm'),
 ]

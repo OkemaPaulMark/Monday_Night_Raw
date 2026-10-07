@@ -24,11 +24,14 @@ TOTW_SLOTS = {
 }
 
 
-def _build_weekly_awards(*, award_kwargs: dict, participants: list[Player], scores: dict, confirm: bool) -> dict:
+def _build_weekly_awards(*, award_kwargs: dict, participants: list[Player], scores: dict, confirm: bool, goal_counts: dict | None = None, assist_counts: dict | None = None) -> dict:
     """
     Shared POTW/TOTW builder used for both a standalone match and a
     game-week aggregate — `award_kwargs` pins the FK (match= or game_week=)
     every created Award should carry, `scores` maps player id -> Decimal.
+
+    Tiebreaker order: performance score → goals → assists → name (alphabetical).
+    Only a genuine tie on all three metrics results in multiple POTW recipients.
     """
     Award.objects.filter(
         award_type__in=[
@@ -38,18 +41,32 @@ def _build_weekly_awards(*, award_kwargs: dict, participants: list[Player], scor
         **award_kwargs,
     ).delete()
 
+    gc = goal_counts or {}
+    ac = assist_counts or {}
+
     scored: list[tuple[Player, Decimal]] = [(p, scores[p.id]) for p in participants]
-    # Score descending, then name ascending as a deterministic tie-break —
-    # matters most for "also played" attendees who all sit at 0 and need a
-    # stable, explainable fill order for the remaining Team of the Week spots.
-    scored.sort(key=lambda item: (-item[1], item[0].name.lower()))
+    # Primary: score desc. Tiebreakers: goals desc → assists desc → name asc.
+    scored.sort(key=lambda item: (
+        -item[1],
+        -gc.get(item[0].id, 0),
+        -ac.get(item[0].id, 0),
+        item[0].name.lower(),
+    ))
 
     if not scored:
         raise ValidationError({'detail': 'No participants available for awards.'})
 
-    # POTW: top score; include ties
-    top_score = scored[0][1]
-    potw_players = [p for p, s in scored if s == top_score]
+    # POTW: winner is the top player; only include others if they are genuinely
+    # tied on score AND goals AND assists (i.e. identical contribution).
+    top_player, top_score = scored[0]
+    top_goals = gc.get(top_player.id, 0)
+    top_assists = ac.get(top_player.id, 0)
+    potw_players = [
+        p for p, s in scored
+        if s == top_score
+        and gc.get(p.id, 0) == top_goals
+        and ac.get(p.id, 0) == top_assists
+    ]
 
     potw = Award.objects.create(
         award_type=Award.AwardType.PLAYER_OF_THE_WEEK,
@@ -102,11 +119,15 @@ def generate_weekly_awards_for_match(match: Match, *, confirm: bool = True) -> d
 
     participants = list(Player.objects.filter(participations__match=match).distinct())
     scores = {p.id: match_player_performance(match, p) for p in participants}
+    goal_counts = {p.id: match.goals.filter(scorer=p).count() for p in participants}
+    assist_counts = {p.id: match.goals.filter(assister=p).count() for p in participants}
     return _build_weekly_awards(
         award_kwargs={'match': match},
         participants=participants,
         scores=scores,
         confirm=confirm,
+        goal_counts=goal_counts,
+        assist_counts=assist_counts,
     )
 
 
@@ -121,11 +142,21 @@ def generate_weekly_awards_for_game_week(game_week: GameWeek, *, confirm: bool =
         Player.objects.filter(participations__match__game_week=game_week).distinct()
     )
     scores = {p.id: game_week_player_performance(game_week, p) for p in participants}
+    goal_counts = {
+        p.id: sum(f.goals.filter(scorer=p).count() for f in game_week.fixtures.all())
+        for p in participants
+    }
+    assist_counts = {
+        p.id: sum(f.goals.filter(assister=p).count() for f in game_week.fixtures.all())
+        for p in participants
+    }
     return _build_weekly_awards(
         award_kwargs={'game_week': game_week},
         participants=participants,
         scores=scores,
         confirm=confirm,
+        goal_counts=goal_counts,
+        assist_counts=assist_counts,
     )
 
 
@@ -291,9 +322,69 @@ def generate_monthly_awards(year: int, month: int) -> list[Award]:
     create_metric_award(Award.AwardType.GOLDEN_BOOT, goals)
     create_metric_award(Award.AwardType.TOP_ASSISTER, assists)
     create_metric_award(Award.AwardType.MOST_POTW, potw)
-    create_metric_award(Award.AwardType.PLAYER_OF_THE_MONTH, performance)
+
+    # POTM: primary = most POTW wins that month, tiebreaker = highest G+A score.
+    # Collect every player who appeared in any of the three metrics.
+    all_pids = set(goals) | set(assists) | set(potw) | set(performance)
+    if all_pids:
+        best_potw_count = max(potw.get(pid, 0) for pid in all_pids)
+        # Candidates: everyone tied on the most POTW wins
+        potm_candidates = [pid for pid in all_pids if potw.get(pid, 0) == best_potw_count]
+        # Among those, pick whoever has the highest G+A score
+        best_ga = max(performance.get(pid, Decimal(0)) for pid in potm_candidates)
+        potm_winners = [pid for pid in potm_candidates if performance.get(pid, Decimal(0)) == best_ga]
+    else:
+        potm_winners = []
+
+    potm_award = Award.objects.create(
+        award_type=Award.AwardType.PLAYER_OF_THE_MONTH,
+        year=year,
+        month=month,
+        is_confirmed=True,
+    )
+    for pid in potm_winners:
+        AwardRecipient.objects.create(
+            award=potm_award,
+            player_id=pid,
+            performance_score=performance.get(pid),
+            rank=1,
+        )
+    created.append(potm_award)
 
     return created
+
+
+@transaction.atomic
+def set_potm_recipients(award: Award, player_ids: list[int]) -> Award:
+    """Manually override Player of the Month recipients."""
+    if award.award_type != Award.AwardType.PLAYER_OF_THE_MONTH:
+        raise ValidationError({'detail': 'Only a Player of the Month award can be edited this way.'})
+    if len(set(player_ids)) != len(player_ids):
+        raise ValidationError({'detail': 'Duplicate players in selection.'})
+
+    year, month = award.year, award.month
+    participant_ids = set(
+        Player.objects.filter(
+            participations__match__finalized_at__isnull=False,
+            participations__match__match_date__year=year,
+            participations__match__match_date__month=month,
+        ).values_list('id', flat=True)
+    )
+    invalid = [pid for pid in player_ids if pid not in participant_ids]
+    if invalid:
+        raise ValidationError({'detail': f'Players {invalid} did not play that month.'})
+
+    award.recipients.all().delete()
+    for rank, pid in enumerate(player_ids, start=1):
+        AwardRecipient.objects.create(
+            award=award,
+            player_id=pid,
+            performance_score=None,
+            rank=rank,
+        )
+    award.is_confirmed = True
+    award.save(update_fields=['is_confirmed', 'updated_at'])
+    return award
 
 
 def sync_monthly_awards_for_month(year: int, month: int) -> list[Award]:
